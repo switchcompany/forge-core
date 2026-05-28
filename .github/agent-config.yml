@@ -4,7 +4,7 @@
 # The target copy points back to the shared Forge Core hub so that
 # LEARNINGS.md and knowledge packs can be reused across projects.
 
-central_agent_path: "/Users/sarthakdureja/testpilot-core"
+central_agent_path: "/Users/sarthakdureja/forge-core"
 local_learnings_file: "LEARNINGS.md"
 knowledge_packs_dir: "knowledge-packs"
 sync_to_central: true
