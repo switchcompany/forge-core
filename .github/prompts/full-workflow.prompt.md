@@ -85,16 +85,17 @@ Collect:
 
 ---
 
-## Phase 2.5 — Dependency Graph & Cascade Coverage
-Run `dependency-graph.prompt.md`.
+## Phase 2.5 — Journey Mapping & DTO Registry
+Run `journey-mapping.prompt.md`.
 
 Collect:
-- call chain map (entry points → downstream functions),
-- cascade depth scores per entry point,
-- coverage impact predictions,
-- tiered target list (Tier 1/2/3).
+- entry points (routes, consumers, jobs, CLI, gRPC, startup hooks),
+- complete journey map (entry → service → adapter → client → mapper per journey),
+- DTO registry (every DTO read once, structured with constructor params, types, defaults, journey usage),
+- mock boundary map (what to mock per journey, unmockable components),
+- journey-weighted test strategy (prioritized by business value).
 
-Feed the cascade map into Phase 5 prioritization.
+Feed the journey map and DTO registry into Phase 6 test generation.
 
 ---
 
@@ -167,7 +168,7 @@ ROLLBACKS = 0
    - utils,
    - mappers,
    - other testable logic.
-   If a cascade map is available from Phase 2.5, use cascade-aware prioritization (Tier 1 → Tier 2 → standard → Tier 3 gap-fill).
+   If a journey map is available from Phase 2.5, use journey-weighted prioritization (critical journeys → service orchestration → adapters per version → mappers → utilities → gap fill).
 4. Generate a focused batch of tests.
 5. Compile and run the relevant suite.
 6. Regenerate coverage.
@@ -228,9 +229,27 @@ After generating a batch:
 
 ### DTO constructor pre-validation
 Before generating tests that reference DTOs:
-1. Read the current DTO/data class constructor.
-2. Verify required params, types, and defaults.
-3. Use exact signatures in test data.
+1. Use the DTO registry from Phase 2.5 if available — do not re-read DTO source files.
+2. If no registry exists, read the current DTO/data class constructor.
+3. Verify required params, types, and defaults.
+4. Use exact signatures in test data.
+
+### Agent Self-Resolution Protocol
+When running with parallel agents, enforce autonomous resolution — never ask the user.
+
+**Heartbeat:** Every agent reports progress every 10 tool calls (files written, coverage delta, status).
+
+**Fruitless detection:** Same error 3+ times or compilation fails 3+ times with same error = agent is stuck.
+
+**Auto-termination:** After 20 fruitless calls, save partial work, log reason, terminate gracefully.
+
+**Scope splitting:** When stuck on a complex target, break into smaller pieces (individual methods), reassign to fresh agents. If sub-agents also stall, mark as requires-manual-review and move on.
+
+**Resolution hierarchy:**
+1. Self-fix (retry with different approach)
+2. Scope split (break into smaller pieces)
+3. Skip and log (mark as skipped with reason)
+4. Never escalate to user
 
 ---
 
@@ -290,7 +309,7 @@ Apply these at every phase to minimize total run time:
 
 1. **Merge Phase 1 + 1.5** into a single scan pass when possible.
 2. **Skip Phase 4** (Fix Broken Tests) if baseline passes 100%.
-3. **Skip Phase 2.5** (Dependency Graph) in targeted mode for ≤ 3 files.
+3. **Skip Phase 2.5** (Journey Mapping) in targeted mode for ≤ 3 files.
 4. **Generate tests in parallel** — split project into independent package scopes, assign each to a parallel agent with pre-loaded context.
 5. **Batch 3-5 test files per iteration** — compile once per batch, not per file.
 6. **Use incremental coverage** during iteration — full suite only at iteration boundaries.

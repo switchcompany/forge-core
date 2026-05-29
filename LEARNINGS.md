@@ -1,11 +1,11 @@
-# TestPilot Core Learnings
+# Forge Core Learnings
 
-> This file is the shared memory of TestPilot Core.
+> This file is the shared memory of Forge Core.
 > After each completed run, the agent appends **generalized**, **secret-free**, **reusable** learnings here.
 > These learnings improve future analysis, broken-test repair, and unit-test generation across projects.
 
 ## How it works
-TestPilot Core uses this file to store:
+Forge Core uses this file to store:
 - failure patterns that repeat across projects,
 - framework-specific mocking and fixture rules,
 - coverage-tool workarounds,

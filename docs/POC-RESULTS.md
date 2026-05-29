@@ -165,37 +165,33 @@ Forge Core demonstrated the ability to:
 
 ### Executive Summary
 
-Forge Core analyzed an enterprise-scale Kotlin/Ktor e-commerce backend and generated **147 new test cases** across **9 new test files**, improving method coverage by **4.0%** and discovering **9 reusable enterprise patterns** — all without modifying any production code.
+Forge Core analyzed an enterprise-scale Kotlin/Ktor e-commerce backend across **two engagements** (v1 initial run + v2 deep waves), generating **~930 new test cases**, pushing line coverage from **35.1% to 55.5%** and discovering **19 reusable enterprise patterns** — all without modifying any production code.
 
 ---
 
-### Before / After
+### Before / After (Combined Results)
 
-| Metric | Before | After | Change |
-|--------|--------|-------|--------|
-| **Line Coverage** | 35.1% | 36.3% | +1.2% |
-| **Method Coverage** | 44.2% | 48.2% | +4.0% |
-| **Branch Coverage** | 15.1% | 15.8% | +0.7% |
-| **Class Coverage** | 52.4% | 53.1% | +0.7% |
-| **Test Files** | 60 | 69 | +9 |
-| **Test Cases** | 269 | 416 | +147 |
-| **Production Files Modified** | — | **0** | ✅ Zero |
+| Metric | Before | After v1 | After v2 (7 waves) | Total Change |
+|--------|--------|----------|---------------------|-------------|
+| **Line Coverage** | 35.1% | 36.3% | 55.5% | +20.4% |
+| **Method Coverage** | 44.2% | 48.2% | ~65% | +~21% |
+| **Branch Coverage** | 15.1% | 15.8% | ~25% | +~10% |
+| **Test Files** | 60 | 69 | ~85 | +~25 |
+| **Test Cases** | 269 | 416 | ~1,200 | +~930 |
+| **Production Files Modified** | — | **0** | **0** | ✅ Zero |
 
 ---
 
-### Per-Module Breakdown
+### Wave Progression (v2 Deep Engagement)
 
-| Module | File | Tests Added | Key Scenarios |
-|--------|------|-------------|---------------|
-| **Mapper** | `NativeBBMapperTest.kt` | 14 | Cart mapping, null handling, filtering |
-| **Mapper** | `BBMapperTest.kt` | 15 | Extension functions, price formatting |
-| **Mapper** | `MapperTest.kt` | 27 | Version comparison, rounding, formatting |
-| **Mapper** | `OmniMapperTest.kt` | 10 | Distance calculation, brand replacement |
-| **Mapper** | `RequestTransformerTest.kt` | 10 | URL formatting, params, headers |
-| **Service** | `SLPServiceTest.kt` | 4 | Delegation, invalid program |
-| **Service** | `AdTechServiceTest.kt` | 3 | Empty skuIds, flags |
-| **Util** | `CommonUtilTest.kt` | 10 | Query parsing, hashing, dates |
-| **Adapter** | `BBAdapterImplTest.kt` | 51 | NotImplemented methods |
+| Wave | Focus | Tests Added | Coverage | Delta | Strategy |
+|------|-------|-------------|----------|-------|----------|
+| **1** | CASCADE — services first | ~250 | 43.2% | +6.9% | Tier 1 cascade targets |
+| **2** | Deeper service/adapter targets | ~53 | 46.0% | +2.8% | Tier 2 + gap fill |
+| **3** | MapperV3/V2 deep coverage | ~44 | 46.5% | +0.5% | Mapper branch coverage |
+| **4** | MapperUtility functions | ~48 | 46.5% | +0.0% | Utility helpers |
+| **5-6** | All mappers + complex functions | ~429 | 54.4% | +7.9% | Parallel 6-agent wave |
+| **7** | CromaAdapter deep test | ~28 | 55.5% | +1.1% | Adapter validation paths |
 
 ---
 
@@ -212,6 +208,29 @@ Forge Core analyzed an enterprise-scale Kotlin/Ktor e-commerce backend and gener
 | 7 | Koin lazy inject for throw-only methods | Fixed DI failures |
 | 8 | `items?.get(0)` vs `firstOrNull()` bug | Found production bug |
 | 9 | JaCoCo duplicate blocks in build.gradle | Documented config issue |
+| 10 | ConfigProps mockkObject required by almost all classes | Universal @BeforeEach pattern |
+| 11 | Suspend inline reified = hard coverage ceiling | ~280 lines untestable |
+| 12 | Adapter try/catch covers validation before unmockable calls | +1.1% from adapter patterns |
+| 13 | Import ambiguity: `org.junit.jupiter.api.Test` not wildcard | Prevents compilation errors |
+| 14 | Parallel agents stall after ~15 tool calls on complex methods | Agent Self-Resolution needed |
+| 15 | DTO re-reading across waves wastes 30%+ time | DTO Registry needed |
+| 16 | Static priority order misses high-value targets | Journey Prioritization needed |
+| 17 | Mapper v1/v2/v3 share patterns — tests transfer across versions | Version grouping needed |
+| 18 | Complex mapper methods need method-level scope splitting | Scope splitting protocol |
+| 19 | Realistic ceiling ~85-88% due to language/framework limitations | Know when to stop |
+
+---
+
+### Coverage Ceiling Analysis
+
+| Component | Missed Lines | Reason | Ceiling Impact |
+|-----------|-------------|--------|----------------|
+| CromaClient | ~280 | `suspend inline reified` — unmockable | -5% |
+| Mapper v1 | ~1,286 | Complex branching, deep DTO chains | Testable with DTO Registry |
+| Mapper v2 | ~567 | Similar to v1 but less complex | Testable with DTO Registry |
+| CromaAdapterImpl | ~770 | Validation + unmockable client calls | Partially testable |
+
+**Estimated reachable ceiling:** 85-88% with current tooling.
 
 ---
 
@@ -219,9 +238,11 @@ Forge Core analyzed an enterprise-scale Kotlin/Ktor e-commerce backend and gener
 
 Forge Core demonstrated the ability to:
 - ✅ Handle enterprise-scale Kotlin/Ktor codebase (15K+ lines, 209 files)
+- ✅ Push line coverage from 35.1% to 55.5% (+20.4%) across 7 waves
+- ✅ Generate ~930 new test cases (~1,200 total)
 - ✅ Detect and adapt to JaCoCo coverage exclusions
-- ✅ Generate 147 tests across mappers, services, utils, and adapters
-- ✅ Discover 9 reusable enterprise patterns
+- ✅ Discover 19 reusable enterprise patterns
 - ✅ Find a real production bug (IndexOutOfBounds in BBMapper)
+- ✅ Identify product improvements needed (DTO Registry, Journey Mapping, Agent Self-Resolution)
 - ✅ Zero production code modifications
-- ✅ All 416 tests passing consistently
+- ✅ All tests passing consistently

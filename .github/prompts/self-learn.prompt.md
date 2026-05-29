@@ -96,7 +96,7 @@ If a new durable pattern was discovered:
 - update `fix-broken-tests.prompt.md`,
 - update `write-unit-tests.prompt.md`,
 - update `coverage-exclusion-scan.prompt.md` if new exclusion patterns were found,
-- update `dependency-graph.prompt.md` if new cascade patterns were found,
+- update `journey-mapping.prompt.md` if new journey patterns or mock boundaries were discovered,
 - update or create a relevant knowledge pack.
 
 ## Step 7 — Report summary

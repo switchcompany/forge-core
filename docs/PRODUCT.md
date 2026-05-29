@@ -10,18 +10,20 @@ Backend teams spend **30-40% of development time** writing and maintaining unit 
 
 ## The Solution
 
-**Forge Core** is an AI agent that acts as a **dedicated test engineer on your team**. Drop it into any backend project, and it:
+**Forge Core** is a **standalone SaaS product** — an AI-powered test generation engine that acts as a dedicated test engineer for your entire organization. It:
 
-1. **Analyzes** your architecture (HLD, LLD, dependency chains)
+1. **Analyzes** your architecture (HLD, LLD, user journeys, DTOs)
 2. **Generates** idiomatic unit tests in your project's style
 3. **Iterates** until 90%+ coverage is achieved
 4. **Learns** from every project, getting smarter over time
+5. **Scales** across teams — multi-company, multi-user, isolated environments
 
 ### Zero Risk Guarantee
 - ✅ Never modifies production code
 - ✅ Never deletes existing tests
 - ✅ Automatic rollback if coverage drops
 - ✅ No secrets or proprietary code stored
+- ✅ Runs in your environment — code never leaves your infrastructure
 
 ---
 
@@ -85,13 +87,57 @@ Backend teams spend **30-40% of development time** writing and maintaining unit 
 | 1 | Stack Detection | ~30s | Language, framework, test tools identified |
 | 1.5 | Exclusion Scan | ~15s | Coverage exclusion map and included packages |
 | 2 | Architecture Analysis | ~2min | HLD/LLD, dependency map, flow documentation |
-| 2.5 | Cascade Analysis | ~1min | Dependency graph, cascade map, Tier 1/2/3 targets |
+| 2.5 | Journey Mapping & DTO Registry | ~2min | Journey map, DTO registry, mock boundaries, test strategy |
 | 3 | Existing Test Audit | ~1min | Baseline coverage, gap analysis, quality score |
 | 4 | Test Generation (iterative) | ~15-25min | New test files with 90%+ coverage |
 | 5 | Final Report | ~30s | Before/after metrics, files created, remaining gaps |
 | 6 | Knowledge Capture | ~30s | New patterns saved for future projects |
 
 **Total time: ~20-30 minutes** (vs. 2-4 weeks manually)
+
+---
+
+## Multi-Tenant Architecture
+
+Forge Core is designed for **multi-company, multi-user** operation:
+
+```
+┌─────────────────────────────────────────────────────┐
+│                  Forge Core SaaS                     │
+│                                                     │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────┐  │
+│  │  Company A   │  │  Company B   │  │Company C │  │
+│  │  ┌────────┐  │  │  ┌────────┐  │  │┌────────┐│  │
+│  │  │User A1 │  │  │  │User B1 │  │  ││User C1 ││  │
+│  │  │User A2 │  │  │  │User B2 │  │  ││User C2 ││  │
+│  │  │User A3 │  │  │  │User B3 │  │  │└────────┘│  │
+│  │  └────────┘  │  │  └────────┘  │  └──────────┘  │
+│  │              │  │              │                  │
+│  │  Projects:   │  │  Projects:   │  Projects:      │
+│  │  - api-svc   │  │  - payments  │  - storefront   │
+│  │  - auth-svc  │  │  - billing   │  - admin-panel  │
+│  │  - worker    │  │  - gateway   │                  │
+│  │              │  │              │                  │
+│  │  Learnings:  │  │  Learnings:  │  Learnings:     │
+│  │  (isolated)  │  │  (isolated)  │  (isolated)     │
+│  └──────────────┘  └──────────────┘                  │
+└─────────────────────────────────────────────────────┘
+```
+
+### Isolation Model
+| Scope | Isolation | Shared |
+|-------|-----------|--------|
+| **Company** | Full — data, learnings, reports never cross company boundaries | Product updates, knowledge packs |
+| **User** | RBAC within company — admin, developer, viewer roles | Company learnings, project reports |
+| **Project** | Independent runs, independent coverage tracking | Company-level learnings |
+| **Knowledge** | Company learnings are private | Public knowledge packs (language patterns) shipped with product |
+
+### Delivery Channels
+| Channel | Description | Use Case |
+|---------|-------------|----------|
+| **CLI** | `forge-core run /path/to/project` | Local development, quick runs |
+| **CI/CD** | GitHub Action / GitLab CI step | Automated pipeline, PR-triggered |
+| **Web Portal** | [theswitchcompany.online](https://theswitchcompany.online) | Dashboard, config, reports, team management |
 
 ---
 
@@ -173,11 +219,14 @@ A: Yes. Forge Core detects monorepo structures and can target specific modules.
 **Q: Will it break my existing tests?**
 A: No. It never deletes existing tests and has rollback protection if coverage drops.
 
+**Q: Does it need GitHub Copilot?**
+A: No. Forge Core is a **standalone product**. It works with any AI runtime — Copilot, Claude, GPT, or local LLMs. The engine is runtime-agnostic; the AI runtime is just one execution backend.
+
 **Q: Does it need access to my source code?**
-A: It runs locally in your environment via GitHub Copilot. No code leaves your infrastructure.
+A: It runs locally in your environment. No code leaves your infrastructure. In SaaS mode, code is processed in isolated containers and never stored.
 
 **Q: How is this different from Copilot's built-in test generation?**
-A: Copilot generates tests for individual functions. Forge Core understands your entire architecture, iterates for coverage, handles complex mocking, and learns from every project.
+A: Copilot generates tests for individual functions. Forge Core understands your entire architecture, traces user journeys, builds a DTO registry, iterates for coverage, handles complex mocking, and learns from every project across your organization.
 
 **Q: Can it generate integration tests?**
 A: The current focus is unit tests. Integration and E2E test generation is on the roadmap.

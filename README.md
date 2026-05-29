@@ -1,17 +1,17 @@
-# 🔥 Forge Core — AI Backend Test Generation Agent
+# 🔥 Forge Core — AI Backend Test Generation Engine
 
-> **Drop-in agentic workflow that auto-generates unit tests for any backend project, in any language.**
-> Zero production code changes. 90%+ coverage. Self-learning.
+> **Standalone SaaS product that auto-generates unit tests for any backend project, in any language.**
+> Zero production code changes. 90%+ coverage. Self-learning. Multi-tenant.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Agent: Copilot](https://img.shields.io/badge/Agent-GitHub%20Copilot-black.svg)](https://github.com/features/copilot)
+[![Engine: AI](https://img.shields.io/badge/Engine-AI%20Powered-purple.svg)](#how-it-works)
 [![Stacks: 9+](https://img.shields.io/badge/Stacks-9%2B%20Languages-green.svg)](#supported-stacks)
 
 ---
 
 ## 🎯 What It Does
 
-Forge Core is an **AI-powered test engineer** that analyzes your backend codebase and generates comprehensive unit tests — automatically. It understands your architecture, detects your tech stack, writes idiomatic tests, and iterates until coverage targets are met.
+Forge Core is an **AI-powered test generation engine** that analyzes your backend codebase and generates comprehensive unit tests — automatically. It understands your architecture, traces user journeys, builds a DTO registry, writes idiomatic tests, and iterates until coverage targets are met.
 
 ```
 Your Backend Project + Forge Core = 90%+ Test Coverage
@@ -30,44 +30,57 @@ Your Backend Project + Forge Core = 90%+ Test Coverage
 | 🎯 **Targeted Mode** | Generate tests for specific classes only (with dependency mocking) |
 | 🏗️ **Monorepo Support** | Works with multi-module projects (Gradle, npm workspaces, etc.) |
 | 🎯 **Coverage Exclusion Detection** | Detects excluded packages before generating tests — zero wasted effort |
-| 🌊 **Cascade Coverage** | Maps call chains to find high-cascade test targets for maximum coverage ROI |
+| 🌊 **Journey Mapping** | Traces complete user flows through the codebase for deep understanding before testing |
+| 📦 **DTO Registry** | Reads all data classes once, shares everywhere — zero re-reading |
 | 📊 **Coverage Impact Predictor** | Estimates which tests will cover the most lines before writing them |
 | ⚡ **Auto Compile-Fix** | Autonomously fixes compilation errors — zero human intervention needed |
-| 🏢 **Enterprise Pattern Library** | Structured, searchable patterns that grow with every engagement |
-| 🚀 **Speed-Optimized** | Parallel generation, smart batching, incremental coverage, architecture caching — enterprise projects in under 45 minutes |
+| 🤖 **Agent Self-Resolution** | Stuck agents auto-recover: heartbeat monitoring, scope splitting, graceful termination |
+| 🏢 **Enterprise Project Graph** | 4-Level DAG decomposes any project for parallel analysis and testing |
+| 🚀 **Speed-Optimized** | Parallel generation, smart batching, incremental coverage, architecture caching |
+| 🏗️ **Multi-Tenant SaaS** | Multiple companies, multiple users per company — isolated and secure |
 
 ---
 
 ## 🚀 Quick Start
 
-### 1. Clone Forge Core (once per team)
+### Delivery Channels
+
+Forge Core runs as a **standalone engine** with three delivery channels:
+
+| Channel | Use Case | How |
+|---------|----------|-----|
+| **CLI** | Local development | `forge-core run /path/to/project` |
+| **CI/CD** | Automated pipelines | GitHub Actions, GitLab CI, Jenkins |
+| **Web Portal** | Team dashboard | [theswitchcompany.online](https://theswitchcompany.online) |
+
+### Option A — CLI (Local)
 ```bash
+# Install
 git clone https://github.com/switchcompany/forge-core.git
 cd forge-core
-```
 
-### 2. Set Up Your Project
-```bash
+# Run on your project
 ./setup.sh /path/to/your/backend/project
+
+# Execute with any AI runtime (Copilot, Claude, GPT, local LLM)
+# The engine reads .github/copilot-instructions.md and prompts/
 ```
 
-This copies the agent files into your project's `.github/` directory.
-
-### 3. Run with Copilot
-Open your project in VS Code / IntelliJ with GitHub Copilot, then:
-
-**Option A — Full Project Run:**
-```
-@workspace Run the full-workflow prompt to analyze this project and generate unit tests
-```
-
-**Option B — Specific Classes:**
-```
-@workspace Run full-workflow for these classes: UserService, OrderController, PaymentAdapter
+### Option B — CI/CD Integration
+```yaml
+# .github/workflows/forge-core.yml
+- name: Run Forge Core
+  uses: switchcompany/forge-core-action@v2
+  with:
+    target: full     # or "targeted: src/services/UserService.kt"
+    coverage: 90
 ```
 
-**Option C — Via GitHub Issue:**
-Create an issue using the "Analyze & Test" template → Copilot agent picks it up automatically.
+### Option C — Web Portal
+1. Sign up at [theswitchcompany.online](https://theswitchcompany.online)
+2. Connect your repository
+3. Configure coverage targets
+4. Forge Core runs automatically on PRs or on-demand
 
 ---
 
@@ -91,11 +104,11 @@ Create an issue using the "Analyze & Test" template → Copilot agent picks it u
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
-│                      Forge Core — Workflow                           │
+│                      Forge Core — Engine                             │
 │                                                                      │
 │  ┌─────────┐  ┌─────────┐  ┌──────────┐  ┌──────────┐  ┌────────┐  │
-│  │ Load    │─▶│ Detect  │─▶│ Exclusion│─▶│ Analyze  │─▶│Cascade │  │
-│  │Learnings│  │ Stack   │  │  Scan    │  │ Project  │  │ Graph  │  │
+│  │ Load    │─▶│ Detect  │─▶│ Exclusion│─▶│ Analyze  │─▶│Journey │  │
+│  │Learnings│  │ Stack   │  │  Scan    │  │ Project  │  │Mapping │  │
 │  └─────────┘  └─────────┘  └──────────┘  └──────────┘  └───┬────┘  │
 │                                                              │       │
 │  ┌─────────┐  ┌──────────────────────────────────────┐      │       │
@@ -103,7 +116,7 @@ Create an issue using the "Analyze & Test" template → Copilot agent picks it u
 │  │ Learn   │  │ Fix → Generate → Auto-Fix → Rollback │              │
 │  └─────────┘  └──────────────────────────────────────┘              │
 │                                                                      │
-│  Output: Tests + Coverage Report + Cascade Map + Learnings           │
+│  Output: Tests + Coverage Report + Journey Map + DTO Registry        │
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -116,7 +129,7 @@ Create an issue using the "Analyze & Test" template → Copilot agent picks it u
 | **1** | Detect tech stack from build files | Stack profile |
 | **1.5** | Scan coverage exclusions | Exclusion map |
 | **2** | Deep project analysis (HLD/LLD/flows) | Architecture map |
-| **2.5** | Build dependency graph & cascade map | Cascade coverage targets |
+| **2.5** | Journey mapping & DTO registry | Journey map, DTO registry, mock boundaries |
 | **3** | Scan & run existing tests, measure baseline | Baseline coverage % |
 | **3.5** | Fix broken tests (10+ battle-tested patterns) | Fixed test suite |
 | **4** | Iterative test generation with auto compile-fix (up to 10 rounds) | New test files |
@@ -166,7 +179,7 @@ forge-core/
 │       ├── detect-tech-stack.prompt.md  # Stack detection playbook
 │       ├── coverage-exclusion-scan.prompt.md  # Coverage exclusion scan
 │       ├── analyze-project.prompt.md    # Architecture analysis
-│       ├── dependency-graph.prompt.md   # Cascade dependency graph
+│       ├── journey-mapping.prompt.md   # Journey tracing & DTO registry
 │       ├── analyze-existing-tests.prompt.md  # Test audit
 │       ├── generate-coverage-report.prompt.md  # Coverage tools
 │       ├── write-unit-tests.prompt.md   # Test writing playbook
@@ -207,24 +220,28 @@ forge-core/
 
 | Metric | Before | After | Delta |
 |--------|--------|-------|-------|
-| **Line Coverage** | 35.1% | 36.3% | +1.2% |
-| **Method Coverage** | 44.2% | 48.2% | +4.0% |
-| **Test Files** | 60 | 69 | +9 |
-| **Test Cases** | 269 | 416 | +147 |
-| **Patterns Discovered** | — | 9 | — |
+| **Line Coverage** | 35.1% | 55.5% | +20.4% |
+| **Method Coverage** | 44.2% | ~65% | +~21% |
+| **Test Files** | 60 | ~85 | +~25 |
+| **Test Cases** | 269 | ~1,200 | +~930 |
+| **Patterns Discovered** | — | 19 | — |
 | **Production Files Modified** | — | 0 | ✅ |
 
-**Key Achievement:** Enterprise-grade Kotlin codebase with 209 source files, 15K+ lines, Koin DI, MockK, complex adapter patterns. Discovered 9 new reusable patterns.
+**Key Achievement:** Enterprise-grade Kotlin codebase with 209 source files, 15K+ lines, Koin DI, MockK, complex adapter patterns. 7 waves of generation. Discovered 19 reusable patterns including 3 that drove product v2 improvements.
 
 ---
 
 ## 🏢 Enterprise Features
 
+- **Multi-tenant SaaS** — multiple companies, isolated environments, per-org knowledge
 - **Cross-project learning** — patterns from Project A help Project B automatically
-- **Central knowledge hub** — team-wide learnings sync via git
+- **Central knowledge hub** — org-wide learnings sync automatically
+- **Journey-based testing** — understands WHY each function exists before writing tests
+- **Enterprise Project Graph** — 4-Level DAG decomposes any project size
+- **Agent self-resolution** — zero user intervention required during runs
 - **Targeted mode** — test specific classes without analyzing the entire project
 - **Monorepo support** — works with multi-module builds
-- **CI/CD integration** — trigger via GitHub Issues or Copilot CLI
+- **CI/CD integration** — trigger via CLI, GitHub Actions, or web portal
 - **Audit trail** — every decision logged in the final report
 
 ---

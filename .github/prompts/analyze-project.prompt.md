@@ -80,14 +80,81 @@ Identify:
 - user-context propagation,
 - security-sensitive branches worth testing.
 
-## Step 5.5 — Dependency graph preparation
-Prepare data for Phase 2.5 dependency graph analysis:
-- identify the main call chains from entry points through service → adapter → client → mapper → util layers,
-- note which functions call the most downstream functions,
-- flag methods with high "cascade depth" — these are prime candidates for cascade coverage,
-- identify shared utility functions called from many places (hub nodes).
+## Step 5.5 — Enterprise Project Graph (4-Level DAG)
 
-This data feeds into the dependency-graph prompt for full cascade coverage analysis.
+Build a 4-level directed acyclic graph that decomposes any project into a testable structure.
+This graph is the **structural backbone** used by all subsequent phases.
+
+### Level 0: Project
+The root node. Contains project metadata:
+- project name, language, framework, build tool
+- total source lines, total test lines
+- module count
+
+### Level 1: Modules
+Backend modules or packages. In monorepos, each service is a module. In single-service projects, each top-level package is a module.
+- Module name, path, line count
+- Dependencies on other modules
+- **Parallelism boundary**: each module can be analyzed and tested independently
+
+### Level 2: Layers
+Within each module, classify all classes/files into architectural layers:
+- **Route/Controller** — HTTP entry points, request handlers
+- **Service/UseCase** — business logic orchestration
+- **Adapter** — external system adapters (API clients, cache, queue)
+- **Client** — raw HTTP/gRPC/queue clients
+- **Mapper/Transformer** — data transformation between layers
+- **Repository** — data persistence
+- **Validator/Policy** — input validation, business rules
+- **Config/DI** — dependency injection, configuration
+- **Util/Helper** — shared utilities
+- **DTO/Model** — data transfer objects, entities
+
+### Level 3: Journeys
+Trace complete request-response flows that cross multiple layers. Each journey represents a real user action:
+- Journey name (e.g., "getCart", "placeOrder", "searchProducts")
+- Entry point (route/controller method)
+- Layer traversal path: Route → Service → Adapter → Client → Mapper
+- DTOs consumed and produced at each layer boundary
+- Versioned variants (v1/v2/v3 of the same journey)
+- Branch points (error paths, cache hit/miss, feature flags)
+
+### Level 4: Components
+Individual classes/functions within each layer:
+- Function name, signature, line count, branch count
+- Testability score (0-10 based on: pure logic=high, heavy I/O=low)
+- Which journeys pass through this component
+- Mock boundary (what must be mocked to test this in isolation)
+
+### DAG Output Format
+```markdown
+## Enterprise Project Graph
+
+### Project: {name}
+- Language: {lang} | Framework: {framework}
+- Source: {lines} lines | Modules: {count}
+
+### Module: {name}
+#### Layers
+| Layer | Classes | Lines | Coverage |
+|-------|---------|-------|----------|
+
+#### Journeys
+| Journey | Entry Point | Layers Traversed | DTOs | Versions |
+|---------|-------------|------------------|------|----------|
+
+#### Components (top uncovered)
+| Component | Layer | Lines | Branches | Testability | Journeys |
+|-----------|-------|-------|----------|-------------|----------|
+```
+
+### Rules
+- **Decompose at Level 1** for parallelism — distribute modules across agents.
+- **Trace at Level 3** for understanding — know WHY each function exists before testing it.
+- **Prioritize at Level 4** for efficiency — test high-testability components in critical journeys first.
+- **Detect versioned flows** — if v1/v2/v3/v4 exist, group them as variants of the same journey, not separate targets. Tests for one version inform tests for others.
+
+This graph feeds directly into the **Journey Mapping** phase (Phase 2.5) and **Journey-Weighted Prioritization** (Phase 4).
 
 ## Step 6 — Testability map
 Classify backend files by unit-test suitability.
@@ -120,6 +187,15 @@ Produce:
 - Integrations:
 - Security model:
 
+### Enterprise Project Graph
+#### Module: {name}
+| Layer | Classes | Lines | Coverage |
+|-------|---------|-------|----------|
+
+#### Journeys Discovered
+| Journey | Entry Point | Layers Traversed | DTOs | Versions |
+|---------|-------------|------------------|------|----------|
+
 ### LLD
 | Module/Package | Key Types | Responsibility | Test Seam |
 |---|---|---|---|
@@ -139,3 +215,4 @@ Produce:
 ```
 
 Focus on information that directly improves later testing decisions.
+The Enterprise Project Graph is the most important output — it drives all subsequent phases.

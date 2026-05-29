@@ -247,21 +247,45 @@ Mappers and adapters often depend on a top-level val like `val configProp = Conf
 
 ---
 
-## 20. Cascade coverage strategy
-Prefer cascade testing on enterprise services:
-- Test `CartService.getCart()` instead of each helper individually
-- One service test cascades through Adapter → Client → Mapper → helpers
-- Use Tier 1/2/3 prioritization from the dependency graph
+## 20. Journey-based testing strategy
+Prefer journey-based testing on enterprise services:
+- Trace the complete user journey before writing any test
+- Test `CartService.getCart()` understanding the full flow: Route → Service → Adapter → Client → Mapper
+- Use the DTO registry for constructor signatures — never re-read DTO files
+- Use journey-weighted prioritization: critical journeys → orchestration → adapters → mappers → utils → gap fill
 
 ---
 
 ## 21. Kotlin/Ktor enterprise completion checklist
 Before accepting a batch on enterprise Kotlin projects:
 - JaCoCo exclusions checked and respected,
-- DTO constructors verified against current production signatures,
+- DTO constructors verified against current production signatures (or DTO registry),
 - Extension function imports correct,
 - Global mutable state initialized in `@BeforeEach`,
 - Top-level config vals set up before class loading,
 - Koin started with required bindings even for throw-only tests,
 - NotImplemented patterns used for interface coverage,
-- Cascade coverage targets prioritized over individual function tests.
+- Journey-weighted targets prioritized over individual function tests.
+
+---
+
+## 22. Assembler-service deep engagement learnings (Kotlin/Ktor, 15K+ lines)
+
+### Coverage progression: 36.3% → 55.5% over 7 waves
+- **Wave 1 (CASCADE):** Services first → 43.2% (+6.9%). Highest ROI from service-level tests.
+- **Wave 2-4 (MAPPERS):** Mapper v1/v2/v3 → 46.5%. Deep mapper logic requires precise DTO knowledge.
+- **Wave 5-6 (DEEP):** Complex functions + all mappers → 54.4%. 429 new tests in parallel push.
+- **Wave 7 (ADAPTER):** CromaAdapterDeepTest → 55.5%. Adapter validation code = easy coverage gains.
+
+### Key patterns discovered
+- **Suspend inline reified = untestable**: `CromaClient` methods are `suspend inline fun <reified T>`. MockK cannot mock them, JaCoCo cannot instrument them. ~280 lines are a hard ceiling.
+- **Adapter try/catch pattern**: Wrap adapter calls in try/catch to cover validation code before the unmockable CromaClient call.
+- **ConfigProps mockkObject pattern**: `mockkObject(ConfigProps); every { configProp } returns ConfigPropDto()` in @BeforeEach. Required by almost every class.
+- **Import ambiguity**: Must use `import org.junit.jupiter.api.Test` NOT wildcard imports — ambiguity with `kotlin.test.Test`.
+- **Realistic ceiling**: ~85-88% due to inline reified functions being untestable with current tools.
+
+### Speed observations
+- Parallel agents got stuck after ~10-15 tool calls on complex mapper methods
+- DTO re-reading across waves wasted significant time (fixed by DTO Registry in v2)
+- Static priority order missed high-value targets (fixed by Journey-Weighted Prioritization in v2)
+

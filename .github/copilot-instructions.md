@@ -41,14 +41,14 @@ Speed is a **core product differentiator**. Best coverage, fastest delivery. Eve
 
 ### Parallel test generation
 Split the project into independent scopes (by package, module, or layer) and generate tests for multiple scopes **simultaneously** using parallel agents when the runtime supports it.
-- Each scope gets its own agent with pre-loaded context (architecture analysis, cascade map, exclusion list, existing test patterns).
+- Each scope gets its own agent with pre-loaded context (architecture analysis, journey map, DTO registry, exclusion list, existing test patterns).
 - Scopes must not overlap — no two agents should generate tests for the same file.
 - Merge results after all agents complete, then run the full suite once.
 
 ### Lazy phase execution
 Skip phases that add no value for the current project:
 - **Skip Phase 3.5** (Fix Broken Tests) if baseline tests pass 100%.
-- **Skip Phase 2.5** (Dependency Graph) in targeted mode for ≤ 3 files.
+- **Skip Phase 2.5** (Journey Mapping) in targeted mode for ≤ 3 files.
 - **Merge Phase 1 + 1.5** into a single pass — detect stack and scan exclusions simultaneously.
 - **Skip Phase 0** (User Gate) in autonomous/CI mode — default to full project run.
 
@@ -88,7 +88,7 @@ On repeat runs against the same project:
 |---|---|---|
 | Small (< 2K lines) | **5-10 minutes** | Sequential, single-batch |
 | Medium (2K-10K lines) | **15-25 minutes** | 2-3 parallel scopes, smart batching |
-| Large (10K-50K lines) | **30-45 minutes** | 4-6 parallel scopes, cascade-first, incremental coverage |
+| Large (10K-50K lines) | **30-45 minutes** | 4-6 parallel scopes, journey-first, incremental coverage |
 | Enterprise (50K+ lines) | **45-90 minutes** | 6+ parallel scopes, architecture caching, delta mode |
 
 ---
@@ -309,7 +309,51 @@ For each relevant backend module, document:
 - validation and error handling,
 - external boundaries that must be mocked.
 
-### 2.4 Flow analysis
+### 2.4 Enterprise Project Graph (4-Level DAG)
+
+Build a 4-level directed acyclic graph that decomposes any project into a testable structure. This is the **structural backbone** for all subsequent phases.
+
+```
+Level 0: Project
+├── Level 1: Modules (parallelism boundary — each module can be tested independently)
+│   ├── Level 2: Layers (route, service, adapter, client, mapper, validator, util, dto)
+│   │   └── Level 3: Journeys (real user flows traced across layers)
+│   │       └── Level 4: Components (individual classes/functions with testability scores)
+```
+
+#### Level 0 — Project
+Root node with project metadata: name, language, framework, build tool, total source lines, module count.
+
+#### Level 1 — Modules
+Backend modules or packages. In monorepos, each service is a module. In single-service projects, each top-level package is a module.
+- **Parallelism boundary**: distribute modules across agents for parallel analysis and test generation.
+
+#### Level 2 — Layers
+Within each module, classify every class/file into its architectural layer:
+Route/Controller, Service/UseCase, Adapter, Client, Mapper/Transformer, Repository, Validator/Policy, Config/DI, Util/Helper, DTO/Model.
+
+#### Level 3 — Journeys
+Trace complete request-response flows crossing multiple layers. Each journey = a real user action (e.g., "getCart", "placeOrder", "searchProducts").
+- Entry point (route/controller method)
+- Layer traversal path: Route → Service → Adapter → Client → Mapper
+- DTOs consumed and produced at each boundary
+- Versioned variants (v1/v2/v3 of the same journey)
+- Branch points (error paths, cache hit/miss, feature flags)
+
+#### Level 4 — Components
+Individual classes/functions within each layer:
+- Signature, line count, branch count
+- Testability score (0–10: pure logic=high, heavy I/O=low)
+- Which journeys pass through this component
+- Mock boundaries (what must be mocked to test in isolation)
+
+#### Rules
+- **Decompose at Level 1** for parallelism — distribute modules across agents.
+- **Trace at Level 3** for understanding — know WHY each function exists before testing it.
+- **Prioritize at Level 4** for efficiency — test high-testability components in critical journeys first.
+- **Detect versioned flows** — if v1/v2/v3/v4 exist, group them as variants of the same journey, not separate targets. Tests for one version inform tests for others.
+
+### 2.5 Flow analysis
 Trace:
 - request lifecycle,
 - happy path and error path branches,
@@ -318,14 +362,14 @@ Trace:
 - async/event-driven flows,
 - security and authorization gates.
 
-### 2.5 Dependency analysis
+### 2.6 Dependency analysis
 Especially in targeted mode:
 - trace the full dependency chain,
 - identify what must be mocked,
 - identify infra-heavy components to isolate,
 - identify files with the highest ratio of business logic to mocking effort.
 
-### 2.6 Testability map
+### 2.7 Testability map
 Classify candidate files as:
 - **High value / easy to unit test**,
 - **High value / moderate setup**,
@@ -335,34 +379,40 @@ Classify candidate files as:
 
 ---
 
-## Phase 2.5 — Dependency Graph & Cascade Coverage Analysis
+## Phase 2.5 — Journey Mapping & DTO Registry
 
-Map project-level call relationships to identify high-cascade test targets.
+Map complete user journeys through the codebase to understand WHY each function exists before writing any test.
 
 ### Purpose
-Instead of testing every function individually (brute-force), identify entry points that exercise many downstream functions through call chains. One well-placed test can cover 100+ lines by cascading through services → adapters → clients → mappers → helpers.
+Instead of measuring cascade depth (how many layers a test touches), trace real user flows to understand the full request-response lifecycle. One journey produces a complete test strategy — which components to test, what to mock, what data to use — before any test file is created.
 
 ### What to build
-1. **Call chain map**: For each service/controller method, trace which adapters, clients, mappers, and utilities it invokes.
-2. **Cascade depth scores**: How many downstream functions does each entry point exercise?
-3. **Coverage impact prediction**: Estimate how many uncovered lines each high-cascade test would cover.
+1. **Entry point discovery**: Identify all HTTP routes, message consumers, scheduled jobs, CLI commands, gRPC services, startup hooks.
+2. **Journey map**: For each entry point, trace the complete path: Route → Service → Adapter → Client → Mapper, with DTOs consumed/produced at each boundary and branch points (error paths, cache hit/miss, feature flags).
+3. **DTO Registry**: Read every DTO/data class **once**. Build a structured registry with constructor params, types, defaults, nested references, and which journeys use each DTO. No agent should ever re-read a DTO source file.
+4. **Mock boundary map**: For each journey, identify exactly what must be mocked (external clients, databases, queues, caches, config) and what cannot be mocked (inline reified functions, final classes).
+5. **Journey test strategy**: Prioritize test targets by business value, not cascade depth.
 
-### Cascade coverage strategy
-| Tier | Target Type | Cascade Depth | Strategy |
+### Journey-weighted prioritization
+| Priority | Target Type | Criteria | Strategy |
 |---|---|---|---|
-| **Tier 1** | Service methods calling adapters + mappers | 5+ | Write integration-style unit tests with mocked I/O boundaries |
-| **Tier 2** | Adapter/mapper methods calling helpers | 3-4 | Write focused unit tests with mocked clients |
-| **Tier 3** | Isolated functions with no cascade | 1-2 | Write targeted unit tests for gap-filling |
+| **P1** | Critical business journeys | Revenue-impacting, user-facing core flows | Test the full journey path with mocked I/O boundaries |
+| **P2** | Service orchestration | Methods coordinating multiple adapters/clients | Test orchestration logic with mocked dependencies |
+| **P3** | Adapters per version | v1/v2/v3/v4 adapter variants | Test each version, extract shared patterns |
+| **P4** | Mappers / transformers | High branch density, high LOC | Targeted branch coverage tests |
+| **P5** | Shared utilities | Helpers used across multiple journeys | Focused unit tests |
+| **P6** | Gap fill | Components not covered by any journey | Targeted gap-filling after high-value paths are done |
 
 ### Rules
-- **Prioritize Tier 1 targets in early iterations** — they give the highest coverage ROI.
-- **Use Tier 3 only for gap-filling** after Tier 1 and 2 have been exhausted.
-- **Feed the cascade map to Phase 4** so the test generation prioritizes high-impact targets.
+- **Trace journeys before writing tests** — understand the flow, then test it.
+- **Build the DTO registry once, share everywhere** — zero re-reading.
+- **Group versioned endpoints** (v1, v2, v3) as variants of the same journey — tests for one inform tests for others.
+- **Feed the journey map and DTO registry to Phase 4** so test generation uses journey-weighted prioritization.
 
 ### Output
-Produce a cascade coverage map and feed it into Phase 4 prioritization.
+Produce a journey map, DTO registry, mock boundary map, and journey-weighted test strategy.
 
-Run `dependency-graph.prompt.md` for the full procedure.
+Run `journey-mapping.prompt.md` for the full procedure.
 
 ---
 
@@ -527,14 +577,14 @@ Use this order unless project context strongly suggests otherwise:
 6. Repositories only when they can be isolated cleanly
 7. Pure DTOs only if they contain behavior/validation
 
-### Cascade-aware prioritization
-When a dependency graph is available from Phase 2.5, override the default prioritization:
-1. **Tier 1 cascade targets** — service/controller methods with cascade depth ≥ 5
-2. **Tier 2 cascade targets** — adapter/mapper methods with cascade depth 3-4
-3. **Services / use cases / business logic** (remaining)
-4. **Adapters / handlers / controllers / routes** (remaining)
-5. **Utilities / helpers** (remaining, only if not coverage-excluded)
-6. **Tier 3 gap-fill** — isolated functions with cascade depth 1-2
+### Journey-weighted prioritization
+When a journey map is available from Phase 2.5, override the default prioritization:
+1. **Critical business journeys** — components in revenue-impacting, user-facing core flows
+2. **Service orchestration** — methods coordinating multiple adapters/clients across a journey
+3. **Adapters per version** — adapter methods for each API version (v1, v2, v3, v4)
+4. **Mappers / transformers** — high branch density, high LOC transformation logic
+5. **Shared utilities** — helpers used across multiple journeys
+6. **Gap fill** — remaining components not covered by any journey
 
 ### Generation standards
 Every generated test must be:
@@ -608,6 +658,40 @@ Stop when any condition is true:
 - max iterations reached,
 - improvement is `< 2%` for **2 consecutive iterations**,
 - remaining uncovered code is infra-bound, generated, or not worth forcing into brittle unit tests.
+
+### Agent Self-Resolution Protocol
+When running with parallel agents or sub-agents, enforce autonomous resolution — **never ask the user for help**.
+
+#### Heartbeat monitoring
+Every agent must report progress every **10 tool calls**:
+```text
+HEARTBEAT: {agent_id} | calls: {count} | files_written: {N} | coverage_delta: {+X%} | status: {progressing|stalling|stuck}
+```
+
+#### Fruitless call detection
+Track consecutive calls that produce no useful output:
+- Same error 3+ times = **fruitless loop detected**
+- File not found 2+ times for same path = **stale target**
+- Compilation fails 3+ times with same error = **blocked**
+
+#### Auto-termination
+After **20 fruitless calls** (calls that produce no new test code, no coverage change, no useful information):
+1. Log termination reason.
+2. Save any partial work (test files written so far).
+3. Report what was accomplished vs. what was attempted.
+4. Terminate gracefully.
+
+#### Scope splitting
+When an agent is stuck on a complex target:
+1. Break the scope into smaller pieces (e.g., split a 500-line service class into individual method targets).
+2. Reassign the sub-scopes to fresh agents with narrower focus.
+3. If sub-agents also stall, mark the target as **requires-manual-review** and move on.
+
+#### Resolution hierarchy
+1. **Self-fix** — apply compile-fix patterns, re-read source, retry with different approach.
+2. **Scope split** — break into smaller pieces and retry.
+3. **Skip and log** — mark target as skipped with reason, move to next target.
+4. **Never escalate to user** — the product must run autonomously.
 
 ---
 

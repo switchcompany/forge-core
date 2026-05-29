@@ -33,7 +33,18 @@ Write tests only for the user-requested classes/files.
 ---
 
 ## Prioritization order
-Use this order by default:
+
+### Journey-weighted prioritization (default when journey map is available)
+When a journey map is available from Phase 2.5, prioritize by business value:
+1. **Critical business journeys** — revenue-impacting, user-facing core flows (checkout, auth, payment)
+2. **Service orchestration** — methods that coordinate multiple adapters/clients across a journey
+3. **Adapters per version** — adapter methods for each API version (v1, v2, v3, v4)
+4. **Mappers / transformers** — high branch density, high LOC transformation logic
+5. **Shared utilities** — helpers used across multiple journeys
+6. **Gap fill** — remaining components not covered by any journey
+
+### Fallback prioritization (when no journey map exists)
+Use this order when running in targeted mode or without Phase 2.5:
 1. **Services / business logic**
 2. **Adapters / handlers / controllers / routes**
 3. **Utils / helpers**
@@ -44,8 +55,26 @@ Use this order by default:
 
 ---
 
-## Cascade-aware prioritization
-When a cascade map is available from Phase 2.5, override default order:
+## DTO Registry Integration
+When a DTO registry is available from Phase 2.5:
+1. **Never re-read DTO source files.** All constructor params, types, defaults, and nesting are in the registry.
+2. Use registry data to construct test objects with correct signatures.
+3. Use registry's `journeys` field to understand which DTOs are relevant to the current test target.
+4. If a DTO is missing from the registry (new file added after mapping), read it once and add to the local registry.
+
+---
+
+## Journey-aware test design
+When a journey map is available from Phase 2.5:
+- Before writing tests for any component, check which journeys pass through it.
+- Design test scenarios that cover the component's role in each journey.
+- Mock only the boundaries identified in the journey's mock boundary map.
+- Use the journey's branch points to identify error and edge cases.
+
+---
+
+## Legacy cascade-aware prioritization
+When a cascade map is available (legacy projects that used dependency-graph analysis), use as supplementary signal:
 1. **Tier 1 cascade targets** — entry points with cascade depth ≥ 5 (service methods calling adapters → clients → mappers)
 2. **Tier 2 cascade targets** — mid-level methods with cascade depth 3-4
 3. **Standard priority** — remaining services, adapters, utils, mappers
@@ -54,10 +83,10 @@ When a cascade map is available from Phase 2.5, override default order:
 ### Coverage Impact Predictor
 For each potential test target, estimate:
 - number of downstream functions exercised,
-- approximate lines covered through cascade,
+- approximate lines covered through journey path,
 - mocking complexity required.
 
-Prefer targets with high cascade / low mocking complexity ratio.
+Prefer targets with high coverage gain / low mocking complexity ratio.
 
 ---
 
@@ -88,7 +117,7 @@ For each batch:
 ### Parallel generation
 When the runtime supports parallel agents:
 1. Split targets into **independent scopes** (by package, module, or layer).
-2. Assign each scope to a parallel agent with pre-loaded context: architecture analysis, cascade map, exclusion list, existing test patterns, DTO signatures.
+2. Assign each scope to a parallel agent with pre-loaded context: architecture analysis, journey map, DTO registry, exclusion list, existing test patterns.
 3. Ensure scopes don't overlap — no two agents write tests for the same file.
 4. Merge all generated test files after agents complete.
 5. Run the full suite once to validate, then measure coverage.
@@ -114,6 +143,25 @@ When tests fail to compile after generation:
 3. Apply targeted fixes (update constructors, add imports, fix mock types).
 4. Recompile — retry up to 3 times.
 5. If still broken, remove only the failing test methods/files and proceed.
+
+---
+
+## Stuck Detection & Self-Resolution
+When generating tests, detect and resolve stuck states autonomously:
+
+**Fruitless call detection:**
+- Same compilation error 3+ times = stop retrying, remove the failing test
+- Same file not found 2+ times = stale target, skip it
+- Zero coverage gain after 3 consecutive batches = pivot to different target area
+
+**Auto-termination:** After 20 tool calls with no new test code or coverage gain, stop and report what was accomplished.
+
+**Scope splitting:** If stuck on a complex class (500+ lines, 10+ methods):
+1. Split into individual method-level targets.
+2. Test the simplest methods first (pure logic, few dependencies).
+3. Build up to complex methods using established mock patterns.
+
+**Never ask the user.** Resolve or skip — always move forward.
 
 ---
 

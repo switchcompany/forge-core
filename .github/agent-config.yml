@@ -4,7 +4,22 @@
 # The target copy points back to the shared Forge Core hub so that
 # LEARNINGS.md and knowledge packs can be reused across projects.
 
+# Engine configuration
 central_agent_path: "/Users/sarthakdureja/forge-core"
 local_learnings_file: "LEARNINGS.md"
 knowledge_packs_dir: "knowledge-packs"
 sync_to_central: true
+
+# Tenant configuration (SaaS mode)
+# These fields are populated by the web portal or CI/CD integration.
+# In CLI mode, they can be set manually or left empty for local-only operation.
+org_id: ""           # Company/organization identifier
+org_name: ""         # Human-readable company name
+user_id: ""          # User identifier within the org
+project_id: ""       # Project identifier for tracking across runs
+
+# Runtime configuration
+# Forge Core is runtime-agnostic — it works with any AI execution backend.
+runtime: "auto"      # auto | copilot | claude | gpt | local
+max_parallel_agents: 4
+cache_dir: ".forge-cache"
