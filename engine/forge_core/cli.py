@@ -49,6 +49,10 @@ def run(
     files: Optional[list[str]] = typer.Option(
         None, "--file", "-f", help="Specific files to test (targeted mode)"
     ),
+    incremental: bool = typer.Option(
+        False, "--incremental/--no-incremental",
+        help="Only analyze files changed since last run (CI mode, ~4x cheaper)"
+    ),
 ):
     """Run Forge Core on a backend project to generate unit tests."""
     from forge_core.auth import load_auth_token, verify_license
@@ -58,10 +62,8 @@ def run(
     from forge_core.utils import logger
     from forge_core.utils.reporter import upload_report
 
-    # Resolve project path
     project_path = project_path.resolve()
 
-    # Load config
     auth_token = load_auth_token()
     config = load_config(
         project_path=project_path,
@@ -72,8 +74,8 @@ def run(
         auth_token=auth_token,
     )
     config.max_iterations = max_iterations
+    config.incremental = incremental
 
-    # Set mode
     try:
         config.mode = RunMode(mode)
     except ValueError:
@@ -84,31 +86,28 @@ def run(
         config.mode = RunMode.TARGETED
         config.target_files = list(files)
 
-    # Verify license
     config = verify_license(config)
 
-    # Validate API key
-    if not config.ai.api_key:
+    # Validate API key — skip if using SaaS proxy (auth_token handles it)
+    if not config.ai.api_key and not config.auth_token:
         console.print(
-            "[red]No API key found.[/red]\n\n"
+            "[red]No API key or auth token found.[/red]\n\n"
             "Set one of:\n"
+            "  export SWITCHFORGE_TOKEN=fc_...  (SaaS proxy — recommended)\n"
             "  export OPENAI_API_KEY=sk-...\n"
             "  export ANTHROPIC_API_KEY=sk-ant-...\n"
-            "  forge-core run --api-key sk-...\n"
-            "  forge-core login (for Pro/Enterprise)\n"
+            "  forge-core login --token YOUR_TOKEN\n"
         )
         raise typer.Exit(1)
 
-    # Run the pipeline
     orchestrator = Orchestrator(config)
     report = orchestrator.run()
 
-    # Upload report to SaaS (if authenticated)
     if config.auth_token:
         import dataclasses
+
         asyncio.run(upload_report(config, dataclasses.asdict(report)))
 
-    # Exit with appropriate code
     if report.production_files_changed > 0:
         logger.error("SAFETY VIOLATION: Production files were changed!")
         raise typer.Exit(2)
@@ -138,7 +137,6 @@ def login(
 
     save_auth_token(token)
 
-    # Verify the token
     config = load_config(Path("."), auth_token=token)
     config = verify_license(config)
     logger.success(f"Logged in as {config.tenant.org_name or 'user'}")

@@ -16,18 +16,14 @@ class Component:
     is_tested: bool = False
     existing_test_file: str = ""
     coverage_pct: float = 0.0
-    # Method classification for targeted test strategy
-    method_classification: str = ""  # "not_implemented" | "pure_logic" | "http_dependent" | "delegate"
-    # ROI score: estimated lines coverable per test / complexity
+    method_classification: str = ""
     roi_score: float = 0.0
-    # Lines inside lambda/inner classes (coroutine blocks, callbacks)
     lambda_lines: int = 0
-    # Auto-detected Koin/DI dependencies from get<Type>() calls
     koin_dependencies: list[str] = field(default_factory=list)
-    # Whether this component has inline reified functions (needs MockEngine)
     has_inline_reified: bool = False
-    # Whether methods throw NotImplementedError (coverage gold)
     not_implemented_count: int = 0
+    # Whether this component needs MockEngine/inline reified (Phase 5B only)
+    requires_complex_mocking: bool = False
 
 
 @dataclass
@@ -88,3 +84,5 @@ class ProjectGraph:
     modules: list[Module] = field(default_factory=list)
     total_source_files: int = 0
     total_test_files: int = 0
+    # file_path → FileInfo from static analyzer (used for skeleton context)
+    file_infos: dict = field(default_factory=dict)

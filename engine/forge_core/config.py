@@ -7,7 +7,7 @@ from pathlib import Path
 
 import yaml
 
-from forge_core.models.config import AIConfig, AIProvider, ForgeConfig, TenantInfo
+from forge_core.models.config import AIProvider, ForgeConfig, TenantInfo
 from forge_core.utils import logger
 
 
@@ -25,15 +25,12 @@ def load_config(
     """
     config = ForgeConfig(project_path=project_path)
 
-    # 1. Load agent-config.yml from the project
     yml_path = project_path / ".github" / "agent-config.yml"
     if yml_path.exists():
         _load_yml(config, yml_path)
 
-    # 2. Environment variables override
     _load_env(config)
 
-    # 3. CLI args override
     if api_key:
         config.ai.api_key = api_key
     if provider:
@@ -45,7 +42,6 @@ def load_config(
     if auth_token:
         config.auth_token = auth_token
 
-    # 4. Resolve prompts directory
     config.prompts_dir = str(project_path / ".github" / "prompts")
 
     return config
@@ -66,7 +62,6 @@ def _load_yml(config: ForgeConfig, yml_path: Path) -> None:
     if "cache_dir" in data:
         config.cache_dir = data["cache_dir"]
 
-    # Tenant info
     config.tenant = TenantInfo(
         org_id=data.get("org_id", ""),
         org_name=data.get("org_name", ""),
@@ -74,7 +69,6 @@ def _load_yml(config: ForgeConfig, yml_path: Path) -> None:
         project_id=data.get("project_id", ""),
     )
 
-    # Runtime config
     if "runtime" in data and data["runtime"] != "auto":
         try:
             config.ai.provider = AIProvider(data["runtime"])
@@ -105,8 +99,11 @@ def _load_env(config: ForgeConfig) -> None:
             # Auto-detect provider from key prefix
             if env_var == "ANTHROPIC_API_KEY" or value.startswith("sk-ant-"):
                 config.ai.provider = AIProvider.ANTHROPIC
-                if config.ai.model == "gpt-4o":
-                    config.ai.model = "claude-sonnet-4-20250514"
+                if config.ai.model == "claude-sonnet-4-6":
+                    pass
+                elif config.ai.model in ("gpt-4o", ""):
+                    config.ai.model = "claude-sonnet-4-6"
+                    config.ai.model_heavy = "claude-opus-4-8"
         elif field == "model":
             config.ai.model = value
         elif field == "provider":
@@ -116,3 +113,8 @@ def _load_env(config: ForgeConfig) -> None:
                 pass
         elif field == "auth_token":
             config.auth_token = value
+
+    # SwitchForge auth token
+    switchforge_token = os.environ.get("SWITCHFORGE_TOKEN", "")
+    if switchforge_token and not config.auth_token:
+        config.auth_token = switchforge_token

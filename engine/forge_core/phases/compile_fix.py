@@ -51,6 +51,7 @@ def fix_compilation_errors(
             ),
             user_prompt=f"Compilation errors:\n```\n{result.output[:4000]}\n```",
             json_mode=True,
+            phase="5b",  # Routes to Opus — compile debugging requires deep reasoning
         )
 
         try:

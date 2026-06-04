@@ -55,6 +55,7 @@ def run(
             f"Test files:\n{file_context}"
         ),
         json_mode=True,
+        phase="4",    # Routes to Opus 4.8 via X-Forge-Phase header
     )
 
     # Parse and write fixed files

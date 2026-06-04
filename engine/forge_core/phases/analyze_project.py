@@ -65,6 +65,8 @@ def run(
     layers_found = len(set(fi.layer for fi in file_infos))
     logger.info(f"Parsed {len(file_infos)} files → {modules_found} modules, {layers_found} layers")
 
+    graph.file_infos = {fi.path: fi for fi in file_infos}
+
     # Build graph from static analysis
     all_modules = _build_graph_from_static(file_infos)
 
@@ -108,12 +110,23 @@ def _build_graph_from_static(file_infos: list[FileInfo]) -> dict[str, Module]:
 
         # Add component
         comp_name = fi.classes[0] if fi.classes else Path(fi.path).stem
+        method_classification = ""
+        if fi.not_implemented_methods:
+            method_classification = "not_implemented"
+        elif fi.method_classifications:
+            method_classification = next(iter(fi.method_classifications.values()))
+
         layer.components.append(
             Component(
                 name=comp_name,
                 file_path=fi.path,
                 layer=fi.layer,
                 dependencies=[imp.split(".")[-1] for imp in fi.imports[:20]],
+                method_classification=method_classification,
+                koin_dependencies=list(fi.koin_dependencies),
+                has_inline_reified=fi.has_inline_reified,
+                not_implemented_count=len(fi.not_implemented_methods),
+                requires_complex_mocking=fi.has_inline_reified,
             )
         )
 
@@ -154,6 +167,7 @@ def _ai_enrich(
             f"{summary}"
         ),
         json_mode=True,
+        phase="2",
     )
 
     try:

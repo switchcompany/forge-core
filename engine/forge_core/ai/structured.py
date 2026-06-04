@@ -84,7 +84,7 @@ def extract(
     last_error = None
     for attempt in range(max_retries + 1):
         try:
-            raw = complete(config, structured_prompt, user_prompt, json_mode=True)
+            raw = complete(config, structured_prompt, user_prompt, json_mode=True, phase="1")
             # Strip markdown code fences if present
             cleaned = raw.strip()
             if cleaned.startswith("```"):

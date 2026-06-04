@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from forge_core.ai.prompts import build_file_context, load_prompt
+from forge_core.ai.prompts import build_file_context, build_skeleton_context, load_prompt
 from forge_core.ai.provider import complete
 from forge_core.core.file_manager import FileManager
 from forge_core.models.config import ForgeConfig
@@ -25,7 +25,6 @@ def run(
     registry = DTORegistry()
     tech = project_graph.tech_stack
 
-    # Read all source files for journey tracing
     source_root = tech.source_root or "src"
     source_files = file_manager.read_files(f"{source_root}/**/*")
     code_exts = _code_exts(tech.language)
@@ -41,7 +40,14 @@ def run(
     if learnings:
         system_prompt += f"\n\nPast learnings:\n{learnings[:2000]}"
 
-    file_context = build_file_context(source_files, max_files=80)
+    # Use skeleton context if ProjectGraph has file_infos (93% token reduction)
+    # Falls back to full file context if file_infos not yet populated
+    if project_graph.file_infos:
+        file_context = build_skeleton_context(project_graph.file_infos)
+        logger.info(f"Using skeleton context: {len(project_graph.file_infos)} files (compressed)")
+    else:
+        file_context = build_file_context(source_files, max_files=80)
+        logger.info(f"Using full file context: {len(source_files)} files")
 
     response = complete(
         config=config.ai,
@@ -55,6 +61,7 @@ def run(
         ),
         json_mode=True,
         max_tokens=8192,
+        phase="2.5",
     )
 
     _parse_journey_response(response, project_graph, registry)
@@ -72,7 +79,6 @@ def _parse_journey_response(
         logger.warn("Failed to parse journey mapping JSON")
         return
 
-    # Parse journeys
     for j_data in data.get("journeys", []):
         journey = Journey(
             name=j_data.get("name", ""),
@@ -82,11 +88,9 @@ def _parse_journey_response(
             priority=j_data.get("priority", 3),
             description=j_data.get("description", ""),
         )
-        # Add to first module (or create default)
         if graph.modules:
             graph.modules[0].journeys.append(journey)
 
-    # Parse DTOs
     for dto_data in data.get("dto_registry", data.get("dtos", [])):
         params = [
             DTOParam(

@@ -15,7 +15,9 @@ from forge_core.models.config import ForgeConfig
 from forge_core.models.dto import DTORegistry
 from forge_core.models.project import Component, ProjectGraph
 from forge_core.models.test_result import IterationResult, TestFileResult
+from forge_core.templates.template_engine import TemplateEngine, TemplateTest
 from forge_core.utils import logger
+from forge_core.utils.pattern_cache import PatternCache
 
 
 @dataclass
@@ -24,6 +26,7 @@ class GenerationResult:
 
     iterations: list[IterationResult] = field(default_factory=list)
     total_tests_generated: int = 0
+    template_tests_generated: int = 0
 
 
 def run(
@@ -36,19 +39,22 @@ def run(
     baseline_coverage: float,
     learnings: str = "",
 ) -> GenerationResult:
-    """Run the iterative test generation loop."""
+    """Run the iterative test generation loop (Phase 5A + 5B)."""
     result = GenerationResult()
     tech = project_graph.tech_stack
 
-    # Build prioritized target list (journey-weighted)
-    targets = _prioritize_targets(project_graph)
-    if not targets:
+    all_targets = _prioritize_targets(project_graph)
+    if not all_targets:
         logger.warn("No generation targets found")
         return result
 
-    logger.info(f"Targets: {len(targets)} components to test")
+    simple_targets = [t for t in all_targets if not t.requires_complex_mocking]
+    complex_targets = [t for t in all_targets if t.requires_complex_mocking]
+    logger.info(
+        f"Targets: {len(all_targets)} total "
+        f"({len(simple_targets)} simple [5A], {len(complex_targets)} complex [5B])"
+    )
 
-    # Load prompts
     write_prompt = load_prompt(prompts_dir, "write-unit-tests")
     system_prompt = write_prompt or (
         "You are a backend test engineer. Write unit tests for the given source code.\n"
@@ -59,104 +65,199 @@ def run(
     if learnings:
         system_prompt += f"\n\nPast learnings:\n{learnings[:2000]}"
 
-    # Add DTO registry context
     if dto_registry.count > 0:
         dto_context = _build_dto_context(dto_registry)
         system_prompt += f"\n\nDTO Registry (use these exact constructors):\n{dto_context}"
 
-    # Iterative loop
+    pattern_cache = PatternCache(config.project_path)
+    pattern_context = pattern_cache.build_context_string(tech.language, tech.framework)
+    if pattern_context:
+        system_prompt += f"\n\n{pattern_context}"
+        logger.info("Pattern cache: loaded proven patterns into context")
+
+    template_engine = TemplateEngine()
+
     current_coverage = baseline_coverage
     best_coverage = baseline_coverage
+
+    logger.info("Phase 5A: Generating tests for simple targets")
+    current_coverage = _run_generation_loop(
+        targets=simple_targets,
+        phase_label="5A",
+        config=config,
+        file_manager=file_manager,
+        agent_manager=agent_manager,
+        tech=tech,
+        system_prompt=system_prompt,
+        template_engine=template_engine,
+        dto_registry=dto_registry,
+        result=result,
+        current_coverage=current_coverage,
+        best_coverage=best_coverage,
+    )
+    best_coverage = max(best_coverage, current_coverage)
+
+    if current_coverage >= config.target_coverage:
+        logger.success(
+            f"Phase 5A hit target {config.target_coverage}% — skipping Phase 5B "
+            f"(saving ~$0.50/run)"
+        )
+    elif complex_targets:
+        logger.info("Phase 5B: Generating tests for complex targets (MockEngine)")
+        current_coverage = _run_generation_loop(
+            targets=complex_targets,
+            phase_label="5B",
+            config=config,
+            file_manager=file_manager,
+            agent_manager=agent_manager,
+            tech=tech,
+            system_prompt=system_prompt,
+            template_engine=template_engine,
+            dto_registry=dto_registry,
+            result=result,
+            current_coverage=current_coverage,
+            best_coverage=best_coverage,
+        )
+    else:
+        logger.info("Phase 5B: No complex targets")
+
+    return result
+
+
+def _run_generation_loop(
+    targets: list,
+    phase_label: str,
+    config: ForgeConfig,
+    file_manager: FileManager,
+    agent_manager: AgentManager,
+    tech,
+    system_prompt: str,
+    template_engine: TemplateEngine,
+    dto_registry: DTORegistry,
+    result: GenerationResult,
+    current_coverage: float,
+    best_coverage: float,
+) -> float:
+    """Inner generation loop shared by Phase 5A and 5B. Returns final coverage."""
     stall_count = 0
     batch_size = 5
 
     for iteration in range(1, config.max_iterations + 1):
         batch_start = (iteration - 1) * batch_size
         batch_targets = targets[batch_start : batch_start + batch_size]
-
         if not batch_targets:
-            logger.info(f"All targets covered after {iteration - 1} iterations")
+            logger.info(
+                f"Phase {phase_label}: all targets processed after {iteration - 1} iterations"
+            )
             break
 
-        logger.info(f"Iteration {iteration}/{config.max_iterations}: {len(batch_targets)} targets")
-
-        # Register agent scope
-        scope_id = f"gen-iter-{iteration}"
-        agent_manager.register(scope_id, [t.file_path for t in batch_targets])
-
-        # Read source files for this batch
-        batch_files: dict[str, str] = {}
-        for target in batch_targets:
-            content = file_manager.read_file(target.file_path)
-            if content:
-                batch_files[target.file_path] = content
-
-        file_context = build_file_context(batch_files)
-
-        # Generate tests
-        response = complete(
-            config=config.ai,
-            system_prompt=system_prompt,
-            user_prompt=(
-                f"Write unit tests for these source files.\n\n"
-                f"Language: {tech.language}\n"
-                f"Framework: {tech.framework}\n"
-                f"Test framework: {tech.test_framework}\n"
-                f"Mock library: {tech.mock_library}\n\n"
-                f"{file_context}"
-            ),
-            json_mode=True,
-            max_tokens=8192,
+        logger.info(
+            f"Phase {phase_label} iteration {iteration}: {len(batch_targets)} targets"
         )
 
-        # Parse and write test files
-        iter_result = IterationResult(iteration=iteration, coverage_before=current_coverage)
-        tests_written = _write_generated_tests(response, file_manager, iter_result)
+        scope_id = f"gen-{phase_label}-iter-{iteration}"
+        agent_manager.register(scope_id, [t.file_path for t in batch_targets])
 
-        if tests_written == 0:
-            agent_manager.record_error(scope_id, "no_tests_generated")
-            action = agent_manager.heartbeat(scope_id)
-            if action in ("split", "terminate"):
-                logger.warn(f"Agent {scope_id}: {action} — moving to next batch")
-                continue
+        template_written = 0
+        ai_targets = []
+        tests_written = 0
+        for target in batch_targets:
+            if template_engine.can_generate(target):
+                tmpl: TemplateTest | None = template_engine.generate(
+                    target, dto_registry, tech.language, tech.test_framework
+                )
+                if tmpl:
+                    file_manager.write_file(tmpl.file_path, tmpl.test_code)
+                    template_written += 1
+                    result.template_tests_generated += 1
+                    logger.info(
+                        f"Template: {target.name} ({tmpl.pattern_used.value}) — no AI call"
+                    )
+                    continue
+            ai_targets.append(target)
 
-        # Run coverage check
-        coverage = run_coverage(config.project_path, tech.coverage_command)
-        iter_result.coverage_after = coverage.line_coverage
-        iter_result.coverage_delta = coverage.line_coverage - current_coverage
-
-        # Rollback protection
-        if coverage.line_coverage < best_coverage:
-            logger.warn(
-                f"Coverage dropped {best_coverage:.1f}% → {coverage.line_coverage:.1f}% — rolling back"
+        if template_written:
+            logger.info(
+                f"Template engine: {template_written} tests written (0 AI tokens)"
             )
-            file_manager.rollback()
-            iter_result.rolled_back = True
+
+        if ai_targets:
+            batch_files: dict[str, str] = {}
+            for target in ai_targets:
+                content = file_manager.read_file(target.file_path)
+                if content:
+                    batch_files[target.file_path] = content
+
+            file_context = build_file_context(batch_files)
+
+            response = complete(
+                config=config.ai,
+                system_prompt=system_prompt,
+                user_prompt=(
+                    f"Write unit tests for these source files.\n\n"
+                    f"Language: {tech.language}\n"
+                    f"Framework: {tech.framework}\n"
+                    f"Test framework: {tech.test_framework}\n"
+                    f"Mock library: {tech.mock_library}\n\n"
+                    f"{file_context}"
+                ),
+                json_mode=True,
+                max_tokens=8192,
+                phase="5",
+            )
+
+            iter_result = IterationResult(
+                iteration=iteration, coverage_before=current_coverage
+            )
+            tests_written = _write_generated_tests(response, file_manager, iter_result)
+
+            if tests_written == 0 and template_written == 0:
+                agent_manager.record_error(scope_id, "no_tests_generated")
+                action = agent_manager.heartbeat(scope_id)
+                if action in ("split", "terminate"):
+                    logger.warn(f"Agent {scope_id}: {action} — moving to next batch")
+                    continue
         else:
-            file_manager.checkpoint()
-            agent_manager.record_progress(scope_id)
-            if coverage.line_coverage > best_coverage:
-                best_coverage = coverage.line_coverage
-            current_coverage = coverage.line_coverage
+            iter_result = IterationResult(
+                iteration=iteration, coverage_before=current_coverage
+            )
+
+        if template_written > 0 or (ai_targets and tests_written > 0):
+            coverage = run_coverage(config.project_path, tech.coverage_command)
+            iter_result.coverage_after = coverage.line_coverage
+            iter_result.coverage_delta = coverage.line_coverage - current_coverage
+
+            if coverage.line_coverage < best_coverage:
+                logger.warn(
+                    f"Coverage dropped {best_coverage:.1f}% → {coverage.line_coverage:.1f}% — rolling back"
+                )
+                file_manager.rollback()
+                iter_result.rolled_back = True
+            else:
+                file_manager.checkpoint()
+                agent_manager.record_progress(scope_id)
+                if coverage.line_coverage > best_coverage:
+                    best_coverage = coverage.line_coverage
+                current_coverage = coverage.line_coverage
 
         agent_manager.complete(scope_id)
         result.iterations.append(iter_result)
 
-        # Early exit if target reached
         if current_coverage >= config.target_coverage:
-            logger.success(f"Target coverage {config.target_coverage}% reached!")
+            logger.success(
+                f"Phase {phase_label}: target {config.target_coverage}% reached!"
+            )
             break
 
-        # Stall detection
         if iter_result.coverage_delta < 0.5:
             stall_count += 1
             if stall_count >= 3:
-                logger.warn("Coverage stalled for 3 iterations — stopping")
+                logger.warn(f"Phase {phase_label}: coverage stalled — stopping")
                 break
         else:
             stall_count = 0
 
-    return result
+    return current_coverage
 
 
 def _prioritize_targets(graph: ProjectGraph) -> list[Component]:
@@ -175,7 +276,6 @@ def _prioritize_targets(graph: ProjectGraph) -> list[Component]:
     """
     all_components: list[Component] = []
 
-    # Collect all components with ROI scoring
     for module in graph.modules:
         journey_components = set()
         for journey in module.journeys:
@@ -184,16 +284,13 @@ def _prioritize_targets(graph: ProjectGraph) -> list[Component]:
         for layer in module.layers:
             for comp in layer.components:
                 if not comp.is_tested:
-                    # Calculate ROI score based on method classification and layer
                     comp.roi_score = _calculate_roi(comp, layer.name)
 
-                    # Boost priority for journey components
                     if comp.name in journey_components:
                         comp.roi_score *= 1.5
 
                     all_components.append(comp)
 
-    # Sort by ROI score descending (highest value first)
     all_components.sort(key=lambda c: c.roi_score, reverse=True)
 
     return all_components
@@ -204,33 +301,28 @@ def _calculate_roi(comp: Component, layer_name: str) -> float:
 
     Higher ROI = more lines covered per unit of test-writing effort.
     """
-    # Base ROI by layer type
     layer_roi = {
-        "repository": 8.0,   # mappers/transformers — pure logic, highest ROI
-        "util": 7.0,         # pure helpers
-        "service": 5.0,      # business logic with mocks
-        "controller": 4.0,   # route handlers
-        "middleware": 3.0,    # interceptors/filters
-        "config": 1.0,       # usually excluded from coverage
-        "model": 1.0,        # usually excluded from coverage
+        "repository": 8.0,
+        "util": 7.0,
+        "service": 5.0,
+        "controller": 4.0,
+        "middleware": 3.0,
+        "config": 1.0,
+        "model": 1.0,
     }
     roi = layer_roi.get(layer_name, 4.0)
 
-    # Boost for NotImplemented methods (coverage gold)
     if comp.not_implemented_count > 0:
         roi += comp.not_implemented_count * 0.5
 
-    # Boost for pure logic classification
     if comp.method_classification == "pure_logic":
         roi *= 1.3
     elif comp.method_classification == "not_implemented":
-        roi *= 1.5  # trivial to test
+        roi *= 1.5
 
-    # Penalty for inline reified (needs MockEngine — harder to test)
     if comp.has_inline_reified:
         roi *= 0.7
 
-    # Penalty for heavy lambda coverage gaps (needs deep MockEngine tests)
     if comp.lambda_lines > 50:
         roi *= 0.8
 
@@ -247,7 +339,6 @@ def _build_dto_context(registry: DTORegistry) -> str:
     """
     lines: list[str] = []
 
-    # Warn about @Serializable DTOs upfront
     serializable = registry.serializable_dtos()
     if serializable:
         lines.append(
@@ -257,17 +348,20 @@ def _build_dto_context(registry: DTORegistry) -> str:
         )
         lines.append("")
 
-    # Warn about namespace collisions
     collisions = registry.get_collisions()
     if collisions:
         lines.append("⚠ Namespace collisions — use import aliases:")
         for name, entries in collisions.items():
             for entry in entries:
-                alias = entry.package.replace(".", "_").replace("model_dto_", "") + "_" + name
+                alias = (
+                    entry.package.replace(".", "_").replace("model_dto_", "")
+                    + "_"
+                    + name
+                )
                 lines.append(f"  - {entry.fully_qualified_name} as {alias}")
         lines.append("")
 
-    for entry in list(registry.entries.values())[:50]:  # cap at 50 DTOs
+    for entry in list(registry.entries.values())[:50]:
         required = [p for p in entry.params if not p.nullable and not p.default]
         optional = [p for p in entry.params if p.nullable or p.default]
 
@@ -306,7 +400,9 @@ def _write_generated_tests(
             iter_result.tests_generated.append(
                 TestFileResult(
                     file_path=path,
-                    test_count=content.count("@Test") + content.count("def test_") + content.count("func Test"),
+                    test_count=content.count("@Test")
+                    + content.count("def test_")
+                    + content.count("func Test"),
                 )
             )
             count += 1

@@ -5,19 +5,17 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-from forge_core.ai.prompts import load_learnings, load_prompt
-from forge_core.config import load_config
+from forge_core.ai.prompts import load_learnings
 from forge_core.core.agent_manager import AgentManager
-from forge_core.core.coverage import run_coverage, run_tests
+from forge_core.core.coverage import run_coverage
 from forge_core.core.file_manager import FileManager
 from forge_core.models.config import ForgeConfig, RunMode
 from forge_core.models.dto import DTORegistry
 from forge_core.models.project import ProjectGraph
-from forge_core.models.test_result import CoverageReport, IterationResult, RunReport
+from forge_core.models.test_result import RunReport
 from forge_core.phases import (
     analyze_project,
     audit_tests,
-    compile_fix,
     coverage_report,
     detect_stack,
     exclusion_scan,
@@ -27,6 +25,7 @@ from forge_core.phases import (
     self_learn,
 )
 from forge_core.utils import logger
+from forge_core.utils.graph_cache import GraphCache
 
 
 class Orchestrator:
@@ -38,6 +37,7 @@ class Orchestrator:
         self.agent_manager = AgentManager()
         self.project_graph = ProjectGraph()
         self.dto_registry = DTORegistry()
+        self.graph_cache = GraphCache(config.project_path)
         self.report = RunReport(
             project_path=str(config.project_path),
             mode=config.mode.value,
@@ -53,7 +53,6 @@ class Orchestrator:
 
         prompts_dir = Path(self.config.prompts_dir)
 
-        # Phase -1: Load past learnings
         logger.phase_start("-1", "Loading past learnings")
         learnings = load_learnings(
             self.config.central_agent_path or None,
@@ -64,7 +63,12 @@ class Orchestrator:
         else:
             logger.phase_done("-1", "No prior learnings found")
 
-        # Phase 1: Detect tech stack
+        # Incremental mode: load git-hash cache
+        if self.config.incremental:
+            logger.phase_start("INC", "Loading incremental cache")
+            self.graph_cache.load()
+            logger.phase_done("INC", "Incremental mode active — only changed files will be analyzed")
+
         logger.phase_start("1/8", "Detecting tech stack")
         tech_stack = detect_stack.run(
             config=self.config,
@@ -77,7 +81,6 @@ class Orchestrator:
         self.report.project_name = self.config.project_path.name
         logger.phase_done("1/8", f"{tech_stack.language}/{tech_stack.framework} detected")
 
-        # Phase 1.5: Coverage exclusion scan
         logger.phase_start("1.5/8", "Scanning coverage exclusions")
         exclusions = exclusion_scan.run(
             config=self.config,
@@ -86,7 +89,6 @@ class Orchestrator:
         )
         logger.phase_done("1.5/8", f"{len(exclusions)} exclusions found")
 
-        # Phase 2: Analyze architecture
         logger.phase_start("2/8", "Analyzing architecture & building project graph")
         self.project_graph = analyze_project.run(
             config=self.config,
@@ -101,7 +103,26 @@ class Orchestrator:
             f"{self.project_graph.total_source_files} source files",
         )
 
-        # Phase 2.5: Journey mapping & DTO registry
+        # Incremental mode: filter project graph to only changed files
+        if self.config.incremental and self.project_graph.file_infos:
+            all_paths = list(self.project_graph.file_infos.keys())
+            changed_paths = set(self.graph_cache.get_changed_files(all_paths))
+            if len(changed_paths) < len(all_paths):
+                # Trim file_infos to changed files only (Phase 2.5 skeleton context auto-respects this)
+                self.project_graph.file_infos = {
+                    k: v for k, v in self.project_graph.file_infos.items()
+                    if k in changed_paths
+                }
+                # Mark unchanged components as already tested (skip in Phase 5)
+                for module in self.project_graph.modules:
+                    for layer in module.layers:
+                        for comp in layer.components:
+                            if comp.file_path not in changed_paths:
+                                comp.is_tested = True  # excluded from generation targets
+                logger.info(
+                    f"Incremental: scoped to {len(changed_paths)}/{len(all_paths)} changed files"
+                )
+
         logger.phase_start("2.5/8", "Mapping journeys & building DTO registry")
         self.dto_registry = journey_mapping.run(
             config=self.config,
@@ -118,13 +139,11 @@ class Orchestrator:
             f"{journey_count} journeys mapped, {self.dto_registry.count} DTOs registered",
         )
 
-        # Stop here for analyze-only modes
         if self.config.mode == RunMode.ANALYZE_ONLY:
             logger.success("Analysis complete (analyze-only mode)")
             self.report.duration_seconds = time.time() - start_time
             return self.report
 
-        # Phase 3: Audit existing tests
         logger.phase_start("3/8", "Auditing existing tests")
         baseline = audit_tests.run(
             config=self.config,
@@ -145,7 +164,6 @@ class Orchestrator:
             self.report.duration_seconds = time.time() - start_time
             return self.report
 
-        # Phase 4: Fix broken tests
         if baseline.tests_failed > 0:
             logger.phase_start("4/8", "Fixing broken tests")
             fixed_count = fix_broken.run(
@@ -161,14 +179,12 @@ class Orchestrator:
         else:
             logger.phase_skip("4/8", "No broken tests found")
 
-        # Get post-fix coverage as new baseline
         post_fix = run_coverage(
             self.config.project_path,
             self.project_graph.tech_stack.coverage_command,
         )
         best_coverage = max(baseline.line_coverage, post_fix.line_coverage)
 
-        # Phase 5: Iterative test generation
         logger.phase_start("5/8", "Generating tests (journey-weighted)")
         generation_result = generate_tests.run(
             config=self.config,
@@ -184,7 +200,6 @@ class Orchestrator:
         self.report.total_iterations = len(generation_result.iterations)
         self.report.rollbacks = sum(1 for i in generation_result.iterations if i.rolled_back)
 
-        # Phase 6: Final coverage report
         logger.phase_start("6/8", "Generating final coverage report")
         final = coverage_report.run(
             config=self.config,
@@ -203,7 +218,6 @@ class Orchestrator:
             self.report.total_tests_after,
         )
 
-        # Phase 7: Self-learn
         logger.phase_start("7/8", "Self-learning")
         patterns = self_learn.run(
             config=self.config,
@@ -216,10 +230,17 @@ class Orchestrator:
         self.report.patterns_discovered = patterns
         logger.phase_done("7/8", f"{patterns} new patterns recorded")
 
-        # Finalize
+        # Save incremental cache for next run
+        for module in self.project_graph.modules:
+            for layer in module.layers:
+                for component in layer.components:
+                    self.graph_cache.update_entry(component.file_path)
+        if self.config.incremental or True:
+            self.graph_cache.save()
+
         self.report.duration_seconds = time.time() - start_time
         self.report.completed_at = __import__("datetime").datetime.now()
-        self.report.production_files_changed = 0  # always 0
+        self.report.production_files_changed = 0
 
         mins = self.report.duration_seconds / 60
         logger.banner(

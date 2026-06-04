@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import os
 from typing import Any
 
@@ -13,6 +12,7 @@ from forge_core.utils import logger
 from forge_core.utils.tokens import count_tokens
 
 _TIMEOUT = httpx.Timeout(120.0, connect=10.0)
+_HEAVY_PHASES = frozenset({"4", "5"})
 
 
 def _get_api_url(config: AIConfig) -> str:
@@ -41,8 +41,10 @@ def _get_api_key(config: AIConfig) -> str:
     return os.environ.get("OPENAI_API_KEY", "")
 
 
-def _resolve_model(config: AIConfig) -> str:
-    """Resolve the model name."""
+def _resolve_model(config: AIConfig, phase: str = "1") -> str:
+    """Resolve the model name. Heavy phases (4, 5) use model_heavy (Opus)."""
+    if phase in _HEAVY_PHASES and config.model_heavy:
+        return config.model_heavy
     return config.model
 
 
@@ -53,6 +55,8 @@ def _call_chat_api(
     temperature: float,
     max_tokens: int,
     json_mode: bool = False,
+    phase: str = "1",
+    project_id: str = "",
 ) -> str:
     """Make a raw HTTP POST to the chat completions endpoint."""
     base_url = _get_api_url(config)
@@ -70,6 +74,8 @@ def _call_chat_api(
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {api_key}",
+        "X-Forge-Phase": phase,
+        "X-Forge-Project-Id": project_id or "",
     }
 
     resp = httpx.post(
@@ -89,21 +95,29 @@ def complete(
     user_prompt: str,
     json_mode: bool = False,
     max_tokens: int | None = None,
+    phase: str = "1",
 ) -> str:
     """Send a completion request to the configured AI provider."""
-    model = _resolve_model(config)
+    model = _resolve_model(config, phase)
+    project_id = getattr(config, "_project_id", "")
     messages = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_prompt},
     ]
 
     input_tokens = count_tokens(system_prompt + user_prompt, config.model)
-    logger.info(f"AI call → {model} ({input_tokens} input tokens)")
+    logger.info(f"AI call → {model} [phase {phase}] ({input_tokens} input tokens)")
 
     try:
         content = _call_chat_api(
-            config, model, messages, config.temperature,
-            max_tokens or config.max_tokens, json_mode,
+            config,
+            model,
+            messages,
+            config.temperature,
+            max_tokens or config.max_tokens,
+            json_mode,
+            phase=phase,
+            project_id=project_id,
         )
         output_tokens = count_tokens(content, config.model)
         logger.info(f"AI response ← {output_tokens} output tokens")
@@ -119,9 +133,12 @@ def complete_with_fallback(
     user_prompt: str,
     fallback_models: list[str] | None = None,
     json_mode: bool = False,
+    phase: str = "1",
 ) -> str:
     """Try primary model, fall back to alternatives on failure."""
-    models = [_resolve_model(config)] + (fallback_models or [])
+    primary = _resolve_model(config, phase)
+    models = [primary] + (fallback_models or [])
+    project_id = getattr(config, "_project_id", "")
     messages = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_prompt},
@@ -131,8 +148,14 @@ def complete_with_fallback(
     for model in models:
         try:
             return _call_chat_api(
-                config, model, messages, config.temperature,
-                config.max_tokens, json_mode,
+                config,
+                model,
+                messages,
+                config.temperature,
+                config.max_tokens,
+                json_mode,
+                phase=phase,
+                project_id=project_id,
             )
         except Exception as e:
             last_error = e

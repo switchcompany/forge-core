@@ -13,6 +13,7 @@ from forge_core.models.config import ForgeConfig
 from forge_core.models.project import ProjectGraph
 from forge_core.models.test_result import RunReport
 from forge_core.utils import logger
+from forge_core.utils.pattern_cache import PatternCache
 
 
 def run(
@@ -31,7 +32,6 @@ def run(
         "Return JSON with patterns: [{name, description, language, example}]."
     )
 
-    # Build run summary for AI
     run_summary = (
         f"Project: {report.project_name}\n"
         f"Language: {report.language}, Framework: {report.framework}\n"
@@ -49,9 +49,9 @@ def run(
         system_prompt=system_prompt,
         user_prompt=f"Extract patterns from this run:\n\n{run_summary}",
         json_mode=True,
+        phase="7",
     )
 
-    # Parse patterns
     new_patterns: list[dict] = []
     try:
         data = json.loads(response)
@@ -63,11 +63,16 @@ def run(
     if not new_patterns:
         return 0
 
-    # Append to LEARNINGS.md
+    # Save patterns to structured cache (for Phase 5 context enrichment)
+    pattern_cache = PatternCache(config.project_path)
+    cache_added = pattern_cache.add_patterns(
+        new_patterns, report.language, report.framework
+    )
+    logger.info(f"Pattern cache: {cache_added} new patterns saved")
+
     learnings_path = config.project_path / "LEARNINGS.md"
     _append_learnings(learnings_path, report, new_patterns)
 
-    # Sync to central hub if configured
     if config.central_agent_path:
         central_path = Path(config.central_agent_path) / "LEARNINGS.md"
         _append_learnings(central_path, report, new_patterns)

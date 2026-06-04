@@ -58,6 +58,41 @@ def build_file_context(files: dict[str, str], max_files: int = 50) -> str:
     return "\n\n".join(parts)
 
 
+def build_skeleton_context(file_infos: dict) -> str:
+    """Build compressed skeleton context from FileInfo objects.
+
+    Sends only class names + method signatures (~8k tokens) instead of full
+    source files (~120k tokens) — 93% token reduction for Phase 2.5 journey mapping.
+
+    Args:
+        file_infos: dict of {file_path: FileInfo} from ProjectGraph.file_infos
+
+    Returns:
+        Compact skeleton string suitable for journey mapping context.
+    """
+    parts: list[str] = []
+    for file_path, info in file_infos.items():
+        lines: list[str] = [f"// {file_path}"]
+
+        for class_name in (getattr(info, "classes", None) or []):
+            lines.append(f"class {class_name}")
+
+        for method in (getattr(info, "methods", None) or []):
+            lines.append(f"  fun {method}()")
+
+        if getattr(info, "has_inline_reified", False):
+            lines.append("  // has inline reified")
+        if getattr(info, "has_serializable_dtos", False):
+            lines.append("  // has @Serializable DTOs")
+        not_impl = getattr(info, "not_implemented_methods", None) or []
+        if not_impl:
+            lines.append(f"  // NotImplemented: {', '.join(not_impl[:3])}")
+
+        parts.append("\n".join(lines))
+
+    return "\n\n".join(parts)
+
+
 def load_learnings(central_path: str | None, local_path: Path | None) -> str:
     """Load LEARNINGS.md from central hub and/or local project."""
     learnings_parts: list[str] = []
