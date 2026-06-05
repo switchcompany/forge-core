@@ -186,6 +186,42 @@ class Orchestrator:
         best_coverage = max(baseline.line_coverage, post_fix.line_coverage)
 
         logger.phase_start("5/8", "Generating tests (journey-weighted)")
+
+        # FC-006 Phase Gating: block Phase 5 if Phase 2 produced no components
+        total_components = sum(
+            len(layer.components)
+            for module in self.project_graph.modules
+            for layer in module.layers
+        )
+        if total_components == 0:
+            logger.warn(
+                "Phase 5 BLOCKED — Phase 2 (analyze_project) returned 0 components. "
+                "Re-running Phase 2 before proceeding."
+            )
+            self.project_graph = analyze_project.run(
+                config=self.config,
+                file_manager=self.file_manager,
+                prompts_dir=prompts_dir,
+                tech_stack=self.project_graph.tech_stack,
+                learnings=learnings,
+            )
+            total_components = sum(
+                len(layer.components)
+                for module in self.project_graph.modules
+                for layer in module.layers
+            )
+            if total_components == 0:
+                logger.error(
+                    "Phase 5 ABORTED — Phase 2 retry also returned 0 components. "
+                    "Check project structure and try again."
+                )
+                self.report.duration_seconds = time.time() - start_time
+                return self.report
+            logger.phase_done(
+                "2/8",
+                f"Phase 2 retry: {total_components} components found",
+            )
+
         generation_result = generate_tests.run(
             config=self.config,
             file_manager=self.file_manager,

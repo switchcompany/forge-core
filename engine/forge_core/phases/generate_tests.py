@@ -58,9 +58,32 @@ def run(
     write_prompt = load_prompt(prompts_dir, "write-unit-tests")
     system_prompt = write_prompt or (
         "You are a backend test engineer. Write unit tests for the given source code.\n"
-        "Rules: idiomatic tests, proper mocking, no production code changes.\n"
+        "Rules:\n"
+        "- Write idiomatic tests using the project's test framework\n"
+        "- Use proper mocking for dependencies\n"
+        "- No changes to production code\n"
+        "- Return exactly ONE test file per production file. No batch files. No Batch2, Batch3, etc.\n"
+        "- No explanations, no markdown prose — only the JSON response\n"
         "Return JSON with test_files: [{path, content}]."
     )
+
+    # FC-006: Phase-locked prompt — language-specific, one file per class enforced
+    _LANGUAGE_TEST_UNIT = {
+        "kotlin": "Kotlin test class",
+        "java": "Java test class",
+        "python": "Python test module",
+        "go": "Go test file",
+        "javascript": "JavaScript test module",
+        "typescript": "TypeScript test module",
+    }
+    lang_key = (tech.language or "").lower()
+    test_unit = _LANGUAGE_TEST_UNIT.get(lang_key, f"{tech.language} test file")
+    phase_lock_suffix = (
+        f"\n\nIMPORTANT: Return exactly one {test_unit} per production file. "
+        f"No explanations. No multiple files for the same production file. "
+        f"No Batch2, Batch3, or similar suffixes in file names."
+    )
+    system_prompt += phase_lock_suffix
 
     if learnings:
         system_prompt += f"\n\nPast learnings:\n{learnings[:2000]}"
@@ -381,10 +404,55 @@ def _build_dto_context(registry: DTORegistry) -> str:
     return "\n".join(lines)
 
 
+def _validate_test_content(path: str, content: str) -> tuple[bool, str]:
+    """FC-006 Structured output contract: validate test file content for the language.
+
+    Returns (is_valid, reason). Invalid files trigger a retry, not a skip.
+    """
+    lower_path = path.lower()
+    lower_content = content.lower()
+
+    # Reject batch files — never allow Batch2, Batch3 etc.
+    import re as _re
+    if _re.search(r'batch\s*[2-9]\d*', lower_path) or _re.search(r'batch\s*[2-9]\d*', lower_content[:200]):
+        return False, f"Batch file detected in path '{path}' — FC-001 violation"
+
+    # Language-specific structural checks
+    if lower_path.endswith(".kt") or lower_path.endswith(".kts"):
+        if "class " not in content and "object " not in content:
+            return False, "Kotlin file missing class/object declaration"
+        if "@test" not in lower_content and "fun test" not in lower_content:
+            return False, "Kotlin file has no @Test annotations or test functions"
+    elif lower_path.endswith(".java"):
+        if "class " not in content:
+            return False, "Java file missing class declaration"
+        if "@test" not in lower_content:
+            return False, "Java file has no @Test annotations"
+    elif lower_path.endswith(".py"):
+        try:
+            import ast as _ast
+            _ast.parse(content)
+        except SyntaxError as e:
+            return False, f"Python file has syntax error: {e}"
+        if "def test_" not in content:
+            return False, "Python file has no test_ functions"
+    elif lower_path.endswith("_test.go") or lower_path.endswith("test.go"):
+        if "package " not in content:
+            return False, "Go file missing package declaration"
+        if "func Test" not in content:
+            return False, "Go file has no func Test functions"
+
+    return True, "ok"
+
+
 def _write_generated_tests(
     response: str, file_manager: FileManager, iter_result: IterationResult
 ) -> int:
-    """Parse AI response and write test files. Returns count written."""
+    """Parse AI response and write test files. Returns count written.
+
+    FC-006: validates structured output contract before writing.
+    Invalid files are skipped and logged (trigger retry at next iteration).
+    """
     count = 0
     try:
         data = json.loads(response)
@@ -395,16 +463,24 @@ def _write_generated_tests(
     for test in data.get("test_files", []):
         path = test.get("path", "")
         content = test.get("content", "")
-        if path and content:
-            file_manager.write_file(path, content)
-            iter_result.tests_generated.append(
-                TestFileResult(
-                    file_path=path,
-                    test_count=content.count("@Test")
-                    + content.count("def test_")
-                    + content.count("func Test"),
-                )
+        if not path or not content:
+            continue
+
+        # FC-006 structured output contract validation
+        valid, reason = _validate_test_content(path, content)
+        if not valid:
+            logger.warn(f"Output contract violation for '{path}': {reason} — skipping (will retry)")
+            continue
+
+        file_manager.write_file(path, content)
+        iter_result.tests_generated.append(
+            TestFileResult(
+                file_path=path,
+                test_count=content.count("@Test")
+                + content.count("def test_")
+                + content.count("func Test"),
             )
-            count += 1
+        )
+        count += 1
 
     return count
