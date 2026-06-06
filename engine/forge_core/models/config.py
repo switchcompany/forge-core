@@ -99,10 +99,11 @@ class AIConfig:
     model: str = "claude-sonnet-4-6"
     model_heavy: str = "claude-opus-4-8"
     api_key: str = ""
-    base_url: str = ""
+    # Default SaaS AI proxy endpoint (proxy will route Sonnet <-> Opus by phase)
+    base_url: str = "https://theswitchcompany.online/api/v1/ai"
     temperature: float = 0.1
     max_tokens: int = 4096
-    use_saas_proxy: bool = False
+    use_saas_proxy: bool = True
 
 
 @dataclass
