@@ -12,6 +12,7 @@ import random
 from forge_core.models.config import AIConfig, AIProvider
 from forge_core.utils import logger
 from forge_core.utils.tokens import count_tokens
+from forge_core.utils import metrics
 
 _TIMEOUT = httpx.Timeout(120.0, connect=10.0)
 _HEAVY_PHASES = frozenset({"4", "5"})
@@ -118,6 +119,9 @@ def _post_with_retries(url: str, json_body: dict[str, Any], headers: dict[str, s
                     logger.error(f"Non-retryable HTTP error {status}: {e}")
                     raise
             logger.warn(f"HTTP request failed (attempt {attempt}/{attempts}): {e}")
+            # Record retry metric and last error type
+            metrics.incr("ai_http_retries", tags={"attempt": attempt, "url": url})
+            metrics.set_last_error("ai_http", type(e).__name__)
             if attempt == attempts:
                 logger.error(f"HTTP request failed after {attempts} attempts: {e}")
                 raise
