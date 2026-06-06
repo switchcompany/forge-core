@@ -23,6 +23,14 @@ def incr(metric: str, amount: int = 1, tags: dict | None = None) -> None:
         key = f"{metric}|{tag_str}"
     with _lock:
         _counters[key] += amount
+    try:
+        # best-effort: mirror to Prometheus exporter if available
+        from forge_core.utils.metrics_exporter import increment as _prom_inc
+
+        # convert tags to string-keys for Prometheus labels
+        _prom_inc(metric, amount, labels=tags)
+    except Exception:
+        pass
 
 
 def set_last_error(context: str, error_type: str) -> None:
