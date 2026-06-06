@@ -33,6 +33,20 @@ class Orchestrator:
 
     def __init__(self, config: ForgeConfig):
         self.config = config
+
+        # If an auth_token is present and SaaS proxy usage is enabled,
+        # configure AIConfig to point to the central SaaS AI proxy and use
+        # the auth token as the API key. This centralizes key management
+        # in the SaaS proxy (theswitchcompany-website) and ensures all
+        # requests include the required Authorization and phase headers.
+        try:
+            if getattr(self.config, "auth_token", None) and getattr(self.config, "ai", None) and self.config.ai.use_saas_proxy:
+                self.config.ai.base_url = self.config.saas_api_url
+                self.config.ai.api_key = self.config.auth_token
+        except Exception:
+            # Avoid failing construction if config shape is unexpected
+            pass
+
         self.file_manager = FileManager(config.project_path)
         self.agent_manager = AgentManager()
         self.project_graph = ProjectGraph()
