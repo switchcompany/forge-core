@@ -36,12 +36,14 @@ def increment(name: str, amount: int = 1, labels: Dict[str, str] | None = None):
     if not _prom:
         return
     c = _counters.get(name)
+    # Auto-register with label names if labels provided
     if not c:
-        # auto-register with no labels
-        c = register_counter(name, name)
+        label_names = list(labels.keys()) if labels else None
+        c = register_counter(name, name, label_names)
         if not c:
             return
     if labels:
+        # Ensure labels key order doesn't matter
         c.labels(**labels).inc(amount)
     else:
         c.inc(amount)

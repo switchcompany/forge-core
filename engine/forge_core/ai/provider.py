@@ -120,7 +120,19 @@ def _post_with_retries(url: str, json_body: dict[str, Any], headers: dict[str, s
                     raise
             logger.warn(f"HTTP request failed (attempt {attempt}/{attempts}): {e}")
             # Record retry metric and last error type
-            metrics.incr("ai_http_retries", tags={"attempt": attempt, "url": url})
+            # Collect labels for metrics
+            try:
+                labels = {
+                    "model": model,
+                    "phase": str(phase),
+                    "attempt": str(attempt),
+                    "url": url,
+                    "project_id": str(project_id or ""),
+                }
+            except Exception:
+                labels = {"attempt": str(attempt)}
+
+            metrics.incr("ai_http_retries", tags=labels)
             metrics.set_last_error("ai_http", type(e).__name__)
             if attempt == attempts:
                 logger.error(f"HTTP request failed after {attempts} attempts: {e}")
