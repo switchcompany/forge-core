@@ -13,6 +13,8 @@ from forge_core.utils.tokens import count_tokens
 
 _TIMEOUT = httpx.Timeout(120.0, connect=10.0)
 _HEAVY_PHASES = frozenset({"4", "5"})
+# Number of retries for transient network errors (total attempts = _RETRY_COUNT + 1)
+_RETRY_COUNT = 2
 
 
 def _get_api_url(config: AIConfig) -> str:
@@ -78,15 +80,33 @@ def _call_chat_api(
         "X-Forge-Project-Id": project_id or "",
     }
 
-    resp = httpx.post(
-        f"{base_url}/chat/completions",
-        json=body,
-        headers=headers,
-        timeout=_TIMEOUT,
-    )
-    resp.raise_for_status()
+    # Use retrying POST helper
+    resp = _post_with_retries(f"{base_url}/chat/completions", body, headers)
     data = resp.json()
     return data["choices"][0]["message"]["content"] or ""
+
+
+def _post_with_retries(url: str, json_body: dict[str, Any], headers: dict[str, str]):
+    """POST with simple retry loop for transient errors.
+
+    Retries _RETRY_COUNT times on exceptions (network errors, 5xx). Does not sleep
+    between attempts to keep tests fast; production may add exponential backoff.
+    """
+    last_err = None
+    attempts = _RETRY_COUNT + 1
+    for attempt in range(1, attempts + 1):
+        try:
+            resp = httpx.post(url, json=json_body, headers=headers, timeout=_TIMEOUT)
+            resp.raise_for_status()
+            return resp
+        except Exception as e:
+            last_err = e
+            logger.warn(f"HTTP request failed (attempt {attempt}/{attempts}): {e}")
+            if attempt == attempts:
+                logger.error(f"HTTP request failed after {attempts} attempts: {e}")
+                raise
+            # try again immediately
+            continue
 
 
 def complete(
