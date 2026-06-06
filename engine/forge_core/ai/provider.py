@@ -6,6 +6,8 @@ import os
 from typing import Any
 
 import httpx
+import time
+import random
 
 from forge_core.models.config import AIConfig, AIProvider
 from forge_core.utils import logger
@@ -15,6 +17,8 @@ _TIMEOUT = httpx.Timeout(120.0, connect=10.0)
 _HEAVY_PHASES = frozenset({"4", "5"})
 # Number of retries for transient network errors (total attempts = _RETRY_COUNT + 1)
 _RETRY_COUNT = 2
+# Base backoff in seconds (exponential backoff: base * 2^(attempt-1))
+_BACKOFF_BASE = 0.25
 
 
 def _get_api_url(config: AIConfig) -> str:
@@ -87,25 +91,42 @@ def _call_chat_api(
 
 
 def _post_with_retries(url: str, json_body: dict[str, Any], headers: dict[str, str]):
-    """POST with simple retry loop for transient errors.
+    """POST with retry loop and exponential backoff.
 
-    Retries _RETRY_COUNT times on exceptions (network errors, 5xx). Does not sleep
-    between attempts to keep tests fast; production may add exponential backoff.
+    Retries on network errors and server-side (5xx) responses. Does NOT retry on
+    client errors (4xx).
     """
     last_err = None
     attempts = _RETRY_COUNT + 1
     for attempt in range(1, attempts + 1):
         try:
             resp = httpx.post(url, json=json_body, headers=headers, timeout=_TIMEOUT)
-            resp.raise_for_status()
+            # Don't retry on client errors (4xx)
+            if 400 <= getattr(resp, "status_code", 0) < 500:
+                logger.error(f"HTTP client error {resp.status_code} returned; not retrying")
+                resp.raise_for_status()
+            # For server errors (5xx), raise to enter retry logic
+            if resp.status_code >= 500:
+                resp.raise_for_status()
             return resp
         except Exception as e:
             last_err = e
+            # If it's a non-retryable HTTPStatusError with 4xx, re-raise immediately
+            if isinstance(e, httpx.HTTPStatusError) and e.response is not None:
+                status = getattr(e.response, "status_code", 0)
+                if 400 <= status < 500:
+                    logger.error(f"Non-retryable HTTP error {status}: {e}")
+                    raise
             logger.warn(f"HTTP request failed (attempt {attempt}/{attempts}): {e}")
             if attempt == attempts:
                 logger.error(f"HTTP request failed after {attempts} attempts: {e}")
                 raise
-            # try again immediately
+            # Exponential backoff with jitter
+            backoff = _BACKOFF_BASE * (2 ** (attempt - 1))
+            jitter = random.uniform(0, backoff)
+            sleep_time = backoff + jitter
+            logger.info(f"Sleeping {sleep_time:.2f}s before retrying")
+            time.sleep(sleep_time)
             continue
 
 

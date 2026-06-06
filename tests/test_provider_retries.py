@@ -27,6 +27,8 @@ def test_post_retries_then_succeed(monkeypatch):
         return DummyResponse({"choices": [{"message": {"content": "ok"}}]})
 
     monkeypatch.setattr(provider.httpx, "post", flaky_post)
+    # Avoid sleeping in tests
+    monkeypatch.setattr(provider.time, "sleep", lambda s: None)
 
     cfg = AIConfig(api_key="k", base_url="https://example.com/api/v1/ai")
     res = provider.complete(cfg, "s", "u", phase="1")
@@ -39,6 +41,7 @@ def test_post_all_fail_raises(monkeypatch):
         raise Exception("boom")
 
     monkeypatch.setattr(provider.httpx, "post", always_fail)
+    monkeypatch.setattr(provider.time, "sleep", lambda s: None)
 
     cfg = AIConfig(api_key="k", base_url="https://example.com/api/v1/ai")
     with pytest.raises(Exception):
