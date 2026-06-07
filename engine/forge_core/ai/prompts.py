@@ -41,8 +41,9 @@ def load_prompt(prompts_dir: Path, prompt_name: str) -> str:
     if file_path.exists():
         return _load(file_path)
 
-    # Not found in project prompts dir: try packaged prompts bundled with the CLI
-    packaged_dir = Path(__file__).parent / "resources" / "prompts"
+    # Not found in project prompts dir: try packaged prompts bundled with the CLI.
+    # prompts.py lives in forge_core/ai/ — resources are one level up at forge_core/resources/
+    packaged_dir = Path(__file__).parent.parent / "resources" / "prompts"
     packaged_file = packaged_dir / f"{prompt_name}.prompt.md"
     if packaged_file.exists():
         logger.info(f"Prompt {prompt_name} not found in project; using packaged fallback.")
