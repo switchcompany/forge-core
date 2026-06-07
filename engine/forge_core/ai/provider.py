@@ -86,12 +86,22 @@ def _call_chat_api(
     }
 
     # Use retrying POST helper
-    resp = _post_with_retries(f"{base_url}/chat/completions", body, headers)
+    resp = _post_with_retries(
+        f"{base_url}/chat/completions", body, headers,
+        model=model, phase=phase, project_id=project_id,
+    )
     data = resp.json()
     return data["choices"][0]["message"]["content"] or ""
 
 
-def _post_with_retries(url: str, json_body: dict[str, Any], headers: dict[str, str]):
+def _post_with_retries(
+    url: str,
+    json_body: dict[str, Any],
+    headers: dict[str, str],
+    model: str = "",
+    phase: str = "",
+    project_id: str = "",
+):
     """POST with retry loop and exponential backoff.
 
     Retries on network errors and server-side (5xx) responses. Does NOT retry on
@@ -119,19 +129,13 @@ def _post_with_retries(url: str, json_body: dict[str, Any], headers: dict[str, s
                     logger.error(f"Non-retryable HTTP error {status}: {e}")
                     raise
             logger.warn(f"HTTP request failed (attempt {attempt}/{attempts}): {e}")
-            # Record retry metric and last error type
-            # Collect labels for metrics
-            try:
-                labels = {
-                    "model": model,
-                    "phase": str(phase),
-                    "attempt": str(attempt),
-                    "url": url,
-                    "project_id": str(project_id or ""),
-                }
-            except Exception:
-                labels = {"attempt": str(attempt)}
-
+            labels = {
+                "model": model,
+                "phase": str(phase),
+                "attempt": str(attempt),
+                "url": url,
+                "project_id": str(project_id),
+            }
             metrics.incr("ai_http_retries", tags=labels)
             metrics.set_last_error("ai_http", type(e).__name__)
             if attempt == attempts:

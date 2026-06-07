@@ -1,0 +1,63 @@
+name: Publish to PyPI
+
+# Triggers on every push to main that touches engine source code.
+# Auto-bumps the patch version, publishes to PyPI, and tags the release.
+# Clients get the update automatically next time they run: pip install --upgrade switchforge
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'engine/forge_core/**'
+      - 'engine/pyproject.toml'
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install build tools
+        run: pip install hatch build twine
+
+      - name: Bump patch version
+        working-directory: engine
+        run: |
+          hatch version patch
+          echo "NEW_VERSION=$(hatch version)" >> $GITHUB_ENV
+
+      - name: Commit version bump
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add engine/pyproject.toml
+          git commit -m "chore: bump switchforge to v${{ env.NEW_VERSION }} [skip ci]"
+          git push
+
+      - name: Build package
+        working-directory: engine
+        run: python -m build
+
+      - name: Publish to PyPI
+        working-directory: engine
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
+        run: twine upload dist/*
+
+      - name: Tag the release
+        run: |
+          git tag "v${{ env.NEW_VERSION }}"
+          git push origin "v${{ env.NEW_VERSION }}"

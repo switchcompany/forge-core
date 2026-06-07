@@ -285,8 +285,7 @@ class Orchestrator:
             for layer in module.layers:
                 for component in layer.components:
                     self.graph_cache.update_entry(component.file_path)
-        if self.config.incremental or True:
-            self.graph_cache.save()
+        self.graph_cache.save()
 
         self.report.duration_seconds = time.time() - start_time
         self.report.completed_at = __import__("datetime").datetime.now()
