@@ -41,7 +41,7 @@ class Orchestrator:
         # requests include the required Authorization and phase headers.
         try:
             if getattr(self.config, "auth_token", None) and getattr(self.config, "ai", None) and self.config.ai.use_saas_proxy:
-                self.config.ai.base_url = f"{self.config.saas_api_url}/api/v1/ai
+                self.config.ai.base_url = f"{self.config.saas_api_url}/api/v1/ai"
                 self.config.ai.api_key = self.config.auth_token
         except Exception:
             # Avoid failing construction if config shape is unexpected
