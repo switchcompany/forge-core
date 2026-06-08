@@ -40,7 +40,7 @@ jobs:
           content = open("pyproject.tom1"). read ()
           match = re.search (r'version = "(\d+) \.(\d+) \. (\d+)"', content)
           major, minor, patch = match. groups()
-          new_ver = f"{major}.{minor).fint(patch)+1}"
+          new_ver = f"{major}.{minor}.fint(patch)+1}"
           open ("pyproject.toml", "w"). write(content. replace(match.group(0), f'version = "[newver)"'))
           open (os. environ["GITHUB_ENV"], "a") write (f"NEW_VERSION={new_ver}\n")
           print (f"Bumped to {new_ver}")
