@@ -35,15 +35,10 @@ jobs:
       - name: Determine and bump version
         working-directory: engine
         run: |
-          if grep -E '^\s*version\s*=' pyproject.toml >/dev/null; then
-            echo "Project has static version, reading existing version"
-            NEW_VERSION=$(grep -E '^\s*version\s*=' pyproject.toml | head -n1 | sed -E 's/.*= *"([^\"]+)".*/\1/')
-          else
-            echo "No static version; bumping patch"
-            hatch version patch
-            NEW_VERSION=$(hatch version)
-          fi
+          hatch version patch
+          NEW_VERSION=$(hatch version)
           echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_ENV
+          
 
       - name: Commit version bump
         run: |
@@ -66,5 +61,11 @@ jobs:
 
       - name: Tag the release
         run: |
-          git tag "v${{ env.NEW_VERSION }}"
-          git push origin "v${{ env.NEW_VERSION }}"
+          git fetch --tags
+          if git rev-parse "v${{ env.NEW_VERSION }}" >/dev/null 2>&1; then
+            echo "Tag v${{ env.NEW_VERSION }} already exists, skipping"
+          else
+            git tag "v${{ env.NEW_VERSION }}"
+            git push origin "v${{ env.NEW_VERSION }}"
+          fi
+          
