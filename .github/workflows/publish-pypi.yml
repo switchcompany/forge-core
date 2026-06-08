@@ -30,14 +30,21 @@ jobs:
           python-version: '3.12'
 
       - name: Install build tools
-        run: pip install hatch build twine
+        run: pip install build twine
 
-      - name: Determine and bump version
+      - name: Bump patch version
         working-directory: engine
         run: |
-          hatch version patch
-          NEW_VERSION=$(hatch version)
-          echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_ENV
+          python3 - <<'EOF'
+          import re, os
+          content = open("pyproject.tom1"). read ()
+          match = re.search (r'version = "(\d+) \.(\d+) \. (\d+)"', content)
+          major, minor, patch = match. groups()
+          new_ver = f"{major}.{minor).fint(patch)+1}"
+          open ("pyproject.toml", "w"). write(content. replace(match.group(0), f'version = "[newver)"'))
+          open (os. environ["GITHUB_ENV"], "a") write (f"NEW_VERSION={new_ver}\n")
+          print (f"Bumped to {new_ver}")
+          EOF
           
 
       - name: Commit version bump
