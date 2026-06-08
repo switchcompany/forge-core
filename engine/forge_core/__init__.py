@@ -1,3 +1,8 @@
 """Forge Core — AI-powered backend test generation engine."""
 
-__version__ = "2.0.1"
+from importlib.metadata import version, PackageNotFoundError
+
+try:
+    __version__=version("switchforge")
+except PackageNotFoundError
+    __version__="2.0.2"
