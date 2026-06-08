@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from pathlib import Path
+import hashlib
+import json
 
 from forge_core.utils import logger
 
@@ -10,27 +12,45 @@ from forge_core.utils import logger
 def load_prompt(prompts_dir: Path, prompt_name: str) -> str:
     """Load a prompt .md file from the prompts directory.
 
+    Falls back to packaged prompts bundled with the CLI when the project
+    prompts directory does not contain the requested prompt. Does not use
+    checksum verification per project preference.
+
     Args:
         prompts_dir: Path to the prompts directory.
         prompt_name: Name of the prompt file (e.g., 'detect-tech-stack').
 
     Returns:
-        The prompt content as a string.
+        The prompt content as a string, or empty string if not found.
     """
     file_path = prompts_dir / f"{prompt_name}.prompt.md"
-    if not file_path.exists():
-        logger.warn(f"Prompt not found: {file_path}")
-        return ""
 
-    content = file_path.read_text(encoding="utf-8")
-    # Strip YAML frontmatter if present
-    if content.startswith("---"):
-        parts = content.split("---", 2)
-        if len(parts) >= 3:
-            content = parts[2].strip()
+    def _load(path: Path) -> str:
+        try:
+            content = path.read_text(encoding="utf-8")
+        except Exception as e:
+            logger.warn(f"Failed to read prompt {path}: {e}")
+            return ""
+        # Strip YAML frontmatter if present
+        if content.startswith("---"):
+            parts = content.split("---", 2)
+            if len(parts) >= 3:
+                content = parts[2].strip()
+        return content
 
-    return content
+    if file_path.exists():
+        return _load(file_path)
 
+    # Not found in project prompts dir: try packaged prompts bundled with the CLI.
+    # prompts.py lives in forge_core/ai/ — resources are one level up at forge_core/resources/
+    packaged_dir = Path(__file__).parent.parent / "resources" / "prompts"
+    packaged_file = packaged_dir / f"{prompt_name}.prompt.md"
+    if packaged_file.exists():
+        logger.info(f"Prompt {prompt_name} not found in project; using packaged fallback.")
+        return _load(packaged_file)
+
+    logger.warn(f"Prompt not found: {file_path} and no packaged fallback available")
+    return ""
 
 def template_prompt(prompt: str, variables: dict[str, str]) -> str:
     """Replace template variables in a prompt.

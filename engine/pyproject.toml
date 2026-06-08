@@ -2,9 +2,10 @@
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+
 [project]
 name = "switchforge"
-version = "2.0.1"
+version = "2.0.2"
 description = "AI-powered backend test generation engine"
 readme = "README.md"
 license = "MIT"

@@ -1,0 +1,88 @@
+*** Proposed patch for website proxy: Harden JSON parsing and return 400 on malformed bodies
+
+Apply this patch inside the website repo (theswitchcompany-website). Save as a .patch and run `git apply harden-proxy-route.patch` from the website repository root.
+
+--- a/src/app/api/v1/ai/chat/completions/route.ts
++++ b/src/app/api/v1/ai/chat/completions/route.ts
+@@
+- export async function POST(req: Request) {
+-   const body = await req.json();
+-   // existing handler logic...
+- }
++ export async function POST(req: Request) {
++   let body: any;
++   try {
++     // guard: ensure the request contains valid JSON
++     body = await req.json();
++   } catch (err) {
++     // Return 400 for malformed JSON instead of crashing
++     return new Response(
++       JSON.stringify({ error: 'Malformed JSON body', error_code: 'BAD_REQUEST' }),
++       { status: 400, headers: { 'Content-Type': 'application/json' } }
++     );
++   }
++
++   // Optional: quick schema/light validation for required fields
++   if (!body || !Array.isArray(body.messages)) {
++     return new Response(
++       JSON.stringify({ error: 'Missing or invalid "messages" array', error_code: 'BAD_REQUEST' }),
++       { status: 400, headers: { 'Content-Type': 'application/json' } }
++     );
++   }
++
++   try {
++     // existing handler logic (model selection, forwarding to Anthropic, normalization)
++     // e.g., const resp = await forwardToAnthropic(...)
++   } catch (err) {
++     // Map common upstream errors to user-friendly statuses
++     // If upstream (Anthropic) is misconfigured, surface 502; otherwise 500
++     const message = err?.message || 'Internal server error';
++     const status = err?.isUpstream ? 502 : 500;
++     return new Response(JSON.stringify({ error: message }), { status, headers: { 'Content-Type': 'application/json' } });
++   }
++ }
++
++/* Notes:
++ - This change prevents runtime 500s from malformed requests and returns 400 with a clear error_code.
++ - Add unit tests below to cover malformed JSON / missing "messages" / valid request paths.
++*/
+
+*** Suggested unit test (Next.js / Node) — add to website repo as tests/api/ai-chat-route.test.ts
+
+import request from 'supertest'
+import { app } from '../../src/server' // adapt to site server entrypoint
+
+describe('/api/v1/ai/chat/completions', () => {
+  it('returns 400 on malformed JSON', async () => {
+    const res = await request(app)
+      .post('/api/v1/ai/chat/completions')
+      .set('Authorization', 'Bearer fc_test')
+      .set('X-Forge-Phase', '1')
+      .send('not a json')
+    expect(res.status).toBe(400)
+    expect(res.body.error_code).toBe('BAD_REQUEST')
+  })
+
+  it('returns 400 when messages is missing', async () => {
+    const res = await request(app)
+      .post('/api/v1/ai/chat/completions')
+      .send({})
+    expect(res.status).toBe(400)
+    expect(res.body.error_code).toBe('BAD_REQUEST')
+  })
+
+  // Add a mocked-success test that stubs Anthropic client and asserts 200
+})
+
+*** Apply instructions
+1. In the website repo root run:
+   git apply harden-proxy-route.patch
+2. Implement the real forward/anthropic call in the try block if needed; this patch only adds validation and error mapping.
+3. Add the unit tests and run site test suite (e.g., npm test).
+4. Push and deploy to Vercel.
+
+If you want, I can also:
+- open a PR against the website repo (requires repo access),
+- or generate a full branch patch (clone + apply + commit + push) if you grant access or provide the website repo here.
+
+*** End of patch
