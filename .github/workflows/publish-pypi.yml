@@ -37,7 +37,7 @@ jobs:
         run: |
           python3 - <<'EOF'
           import re, os
-          content = open("pyproject.tom1").read()
+          content = open("pyproject.toml").read()
           match = re.search (r'version = "(\d+)\.(\d+)\.(\d+)"', content)
           major, minor, patch = match.groups()
           new_ver = f"{major}.{minor}.{int(patch)+1}"
